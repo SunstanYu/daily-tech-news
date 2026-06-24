@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Mock AI Blog</title>
+    <link>https://example.com/blog</link>
+    <description>Test feed</description>
+    <item>
+      <title>Model X released with new reasoning</title>
+      <link>https://example.com/blog/model-x</link>
+      <pubDate>Mon, 23 Jun 2026 10:00:00 GMT</pubDate>
+      <description>&lt;p&gt;We are excited to announce &lt;b&gt;Model X&lt;/b&gt; with better reasoning.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Research note on agents</title>
+      <link>https://example.com/blog/agents-note</link>
+      <pubDate>Sun, 22 Jun 2026 09:00:00 GMT</pubDate>
+      <description>Short note about agent architectures.</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,122 @@
+# =============================================================================
+# Daily Tech News Skill — 配置文件
+# 所有可调参数集中在此。修改后无需改动任何脚本代码。
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 流 1a: RSS 科技新闻源(信源策展,不做热度排序,逐条摘要)
+# -----------------------------------------------------------------------------
+# type 决定用哪个处理器:
+#   "rss"     -> 通用 feedparser(绝大多数标准 feed,加源只需加一行)
+#   "algolia" -> Hacker News 专用 API 处理器
+# 加新的标准 RSS 源:复制一个 type: rss 的条目,改 name + url 即可。
+rss_sources:
+  - name: "OpenAI"
+    type: "rss"
+    url: "https://openai.com/news/rss.xml"
+    enabled: true
+
+  - name: "Google Research"
+    type: "rss"
+    url: "https://research.google/blog/rss"
+    enabled: true
+
+  - name: "Meta AI"
+    type: "rss"
+    # 注意:Meta AI blog 是否有标准 feed 存疑,连通测试可能显示不通。
+    # 备选后缀可尝试:/rss, /feed, /feed.xml
+    url: "https://ai.meta.com/blog/rss/"
+    enabled: true
+
+  - name: "TLDR AI"
+    type: "rss"
+    # 注意:newsletter 类公开 feed 不确定,连通测试可能显示不通。
+    url: "https://tldr.tech/api/rss/ai"
+    enabled: true
+
+  - name: "The Rundown AI"
+    type: "rss"
+    # 注意:同上,可能不通。
+    url: "https://www.therundown.ai/feed"
+    enabled: true
+
+  - name: "Hacker News"
+    type: "algolia"
+    # HN 走 Algolia Search API,自带 points(热度信号)
+    query: "ai OR agent"
+    points_threshold: 50      # 只保留 points 高于此值的 story
+    max_items: 30
+    enabled: true
+
+# 候选备用源(已确认有 feed,若上面某些源不通可启用替换)
+# 取消注释即可启用:
+#  - name: "Hugging Face"
+#    type: "rss"
+#    url: "https://huggingface.co/blog/feed.xml"
+#    enabled: true
+#  - name: "DeepMind"
+#    type: "rss"
+#    url: "https://deepmind.google/blog/feed"
+#    enabled: true
+#  - name: "The Decoder"
+#    type: "rss"
+#    url: "https://the-decoder.com/feed/"
+#    enabled: true
+
+# -----------------------------------------------------------------------------
+# 流 1b: X 关注用户(信源策展,不做热度排序)
+# -----------------------------------------------------------------------------
+following_stream:
+  enabled: false              # 先关闭;填入 handles 后改 true
+  handles: []                 # 例: ["sama", "AndrewYNg", "ylecun"]
+  max_items: 100
+  sort: "Latest"
+
+# -----------------------------------------------------------------------------
+# 流 2: X 关键词热点发现(做热度排序)
+# -----------------------------------------------------------------------------
+keywords_stream:
+  enabled: true
+  keywords: ["ai", "agent"]   # 组合成 (ai OR agent)
+  min_faves: 300              # Apify 端互动阈值,过滤长尾
+  lang: "en"
+  sort: "Top"
+  max_items: 200             # 每次抓取上限(控制成本)
+  top_n: 20                  # 热点排序后输出前 N 条
+
+  # 热度排序权重(score = unique_authors * w_authors + total_engagement_norm * w_engagement)
+  # 作者权重设得高于互动量,以抗单账号刷量、贴合"大家都在讨论"的直觉。
+  unique_authors_weight: 2.0
+  engagement_weight: 1.0
+  # 互动量归一化:把 like+rt+reply+quote 的总和除以此基准再参与加权,
+  # 避免单条爆款(几十万赞)在分数里碾压"作者多但单条互动中等"的话题。
+  engagement_norm_base: 1000
+
+# -----------------------------------------------------------------------------
+# Apify 配置(X 抓取)
+# -----------------------------------------------------------------------------
+apify:
+  actor_id: "apidojo/tweet-scraper"
+  # token 从环境变量读取,绝不写入此文件:  export APIFY_TOKEN=xxx
+  token_env: "APIFY_TOKEN"
+  timeout_seconds: 300
+
+# -----------------------------------------------------------------------------
+# 存储 / 输出
+# -----------------------------------------------------------------------------
+storage:
+  db_path: "./data/news.db"          # SQLite,用于去重 + 历史
+  dedup_window_days: 7               # 只跟最近 N 天的历史比对去重
+
+output:
+  digest_dir: "./digests"            # digest 输出目录
+  raw_filename: "digest_raw.json"    # 脚本产出(待摘要)
+  # 最终 digest(digest_final.json / .md)由 SKILL.md 指挥 agent 整合后生成
+
+# -----------------------------------------------------------------------------
+# 摘要(由 SKILL.md 中的 delegate_task 执行,此处仅记录意图供参考)
+# -----------------------------------------------------------------------------
+summarize:
+  fetch_fulltext: true       # 子 agent 是否联网抓全文再总结
+  generate_angle: true       # 子 agent 是否一并生成"角度建议"
+  max_concurrent: 3          # delegate_task 并行上限(对应 Hermes 限制)

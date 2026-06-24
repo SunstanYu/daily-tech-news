@@ -1,0 +1,20 @@
+{
+  "_comment": "Designed to test the CORE ranking claim: a topic discussed by MANY authors should outrank a topic spammed by ONE author, even when the spammer's raw engagement is similar. Topic #agi: 6 distinct authors, moderate engagement each. Topic #spamcoin: 1 author posting 6 times with high engagement. With author-weight > engagement-weight, #agi must win.",
+  "items": [
+    {"author": "alice", "summary": "Big news about #agi today, huge implications", "metrics": {"like": 200, "retweet": 30, "reply": 10, "quote": 5}},
+    {"author": "bob",   "summary": "Everyone talking about #agi right now", "metrics": {"like": 150, "retweet": 20, "reply": 8, "quote": 3}},
+    {"author": "carol", "summary": "My take on #agi progress", "metrics": {"like": 300, "retweet": 40, "reply": 25, "quote": 9}},
+    {"author": "dave",  "summary": "#agi is the topic of the day", "metrics": {"like": 90, "retweet": 12, "reply": 5, "quote": 1}},
+    {"author": "erin",  "summary": "Can we talk about #agi seriously", "metrics": {"like": 220, "retweet": 33, "reply": 18, "quote": 7}},
+    {"author": "frank", "summary": "#agi everywhere on my timeline", "metrics": {"like": 110, "retweet": 15, "reply": 6, "quote": 2}},
+
+    {"author": "spammer", "summary": "Buy #spamcoin now to the moon", "metrics": {"like": 500, "retweet": 100, "reply": 2, "quote": 1}},
+    {"author": "spammer", "summary": "#spamcoin pumping again", "metrics": {"like": 480, "retweet": 95, "reply": 1, "quote": 0}},
+    {"author": "spammer", "summary": "Last chance #spamcoin", "metrics": {"like": 510, "retweet": 110, "reply": 3, "quote": 1}},
+    {"author": "spammer", "summary": "#spamcoin holders win", "metrics": {"like": 470, "retweet": 90, "reply": 0, "quote": 0}},
+    {"author": "spammer", "summary": "Do not miss #spamcoin", "metrics": {"like": 495, "retweet": 105, "reply": 2, "quote": 1}},
+    {"author": "spammer", "summary": "#spamcoin is destiny", "metrics": {"like": 460, "retweet": 88, "reply": 1, "quote": 0}},
+
+    {"author": "grace", "summary": "A quiet tweet about robotics with no hashtag at all", "metrics": {"like": 20, "retweet": 2, "reply": 1, "quote": 0}}
+  ]
+}
