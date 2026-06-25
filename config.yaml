@@ -21,23 +21,21 @@ rss_sources:
     url: "https://research.google/blog/rss"
     enabled: true
 
-  - name: "Meta AI"
+  - name: "DeepMind"
     type: "rss"
-    # 注意:Meta AI blog 是否有标准 feed 存疑,连通测试可能显示不通。
-    # 备选后缀可尝试:/rss, /feed, /feed.xml
-    url: "https://ai.meta.com/blog/rss/"
+    # 替换原 Meta AI 源(ai.meta.com/blog/rss/ 返回 404,无公开 feed)
+    url: "https://deepmind.google/blog/feed"
     enabled: true
 
   - name: "TLDR AI"
     type: "rss"
-    # 注意:newsletter 类公开 feed 不确定,连通测试可能显示不通。
     url: "https://tldr.tech/api/rss/ai"
     enabled: true
 
-  - name: "The Rundown AI"
+  - name: "Hugging Face"
     type: "rss"
-    # 注意:同上,可能不通。
-    url: "https://www.therundown.ai/feed"
+    # 替换原 The Rundown AI 源(www.therundown.ai/feed 返回 404,无公开 feed)
+    url: "https://huggingface.co/blog/feed.xml"
     enabled: true
 
   - name: "Hacker News"
@@ -48,16 +46,8 @@ rss_sources:
     max_items: 30
     enabled: true
 
-# 候选备用源(已确认有 feed,若上面某些源不通可启用替换)
+# 候选备用源(已确认有 feed,若需替换上面某条可启用)
 # 取消注释即可启用:
-#  - name: "Hugging Face"
-#    type: "rss"
-#    url: "https://huggingface.co/blog/feed.xml"
-#    enabled: true
-#  - name: "DeepMind"
-#    type: "rss"
-#    url: "https://deepmind.google/blog/feed"
-#    enabled: true
 #  - name: "The Decoder"
 #    type: "rss"
 #    url: "https://the-decoder.com/feed/"

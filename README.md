@@ -149,8 +149,9 @@ FAILED tests/test_logic.py::test_following_query_none_when_empty
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| RSS 抓取 | ✅ 4/6 源可用 | OpenAI(1020), Google Research(100), TLDR AI(20), Hacker News(30) 正常; Meta AI 和 The Rundown AI 均返回 404 |
+| RSS 抓取 | ✅ 6/6 源可用 | OpenAI, Google Research, DeepMind, TLDR AI, Hugging Face, Hacker News 全部连通 |
 | X following 抓取 | ✅ 正常 | 从 ylecun/sama 抓取到 4 条推文,含完整 metrics |
 | SQLite 去重 | ✅ 正常 | 首次 1170 new/0 dup,二次 0 new/1170 dup,去重逻辑正确 |
-| Meta AI RSS | ❌ 404 | `ai.meta.com/blog/rss/` 无公开 feed |
-| The Rundown RSS | ❌ 404 | `www.therundown.ai/feed` 无公开 feed |
+
+> 历史:Meta AI(`ai.meta.com/blog/rss/`)与 The Rundown AI(`www.therundown.ai/feed`)
+> 均返回 404,已分别替换为 DeepMind 与 Hugging Face(均确认有公开 feed)。
