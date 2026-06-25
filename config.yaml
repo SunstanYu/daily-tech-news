@@ -64,42 +64,38 @@ rss_sources:
 #    enabled: true
 
 # -----------------------------------------------------------------------------
-# 流 1b: X 关注用户(信源策展,不做热度排序)
+# 流 1b: X 关注用户(信源策展,抓指定时间窗内的所有推文,不做热度排序)
 # -----------------------------------------------------------------------------
 following_stream:
-  enabled: false              # 先关闭;填入 handles 后改 true
-  handles: []                 # 例: ["sama", "AndrewYNg", "ylecun"]
-  max_items: 100
-  sort: "Latest"
+  enabled: true               # 填好 handles 后即可用;handles 为空会自动跳过
+  handles: []                 # 你关注的账号用户名(不带@),例: ["sama", "ylecun"]
+  window_hours: 24            # 抓取最近多少小时内的推文(默认24h,可命令行 --window-hours 覆盖)
+  lang: null                  # 限定语言留 null = 不限;如只要英文填 "en"
+  exclude_retweets: false     # true = 过滤转推
+  exclude_replies: false      # true = 过滤回复
+  max_pages: 20               # 分页上限(每页约20条,防止极端情况翻页过多)
 
 # -----------------------------------------------------------------------------
-# 流 2: X 关键词热点发现(做热度排序)
+# 流 2: X 关键词热点发现(热度排序)—— 暂不启用,后续再做
 # -----------------------------------------------------------------------------
 keywords_stream:
-  enabled: true
-  keywords: ["ai", "agent"]   # 组合成 (ai OR agent)
-  min_faves: 300              # Apify 端互动阈值,过滤长尾
+  enabled: false             # 本版本暂不做热度排序,保持关闭
+  keywords: ["ai", "agent"]
+  min_faves: 300
+  window_hours: 24
   lang: "en"
-  sort: "Top"
-  max_items: 200             # 每次抓取上限(控制成本)
-  top_n: 20                  # 热点排序后输出前 N 条
-
-  # 热度排序权重(score = unique_authors * w_authors + total_engagement_norm * w_engagement)
-  # 作者权重设得高于互动量,以抗单账号刷量、贴合"大家都在讨论"的直觉。
+  top_n: 20
   unique_authors_weight: 2.0
   engagement_weight: 1.0
-  # 互动量归一化:把 like+rt+reply+quote 的总和除以此基准再参与加权,
-  # 避免单条爆款(几十万赞)在分数里碾压"作者多但单条互动中等"的话题。
   engagement_norm_base: 1000
 
 # -----------------------------------------------------------------------------
-# Apify 配置(X 抓取)
+# TwitterAPI.io 配置(X 抓取)
 # -----------------------------------------------------------------------------
-apify:
-  actor_id: "apidojo/tweet-scraper"
-  # token 从环境变量读取,绝不写入此文件:  export APIFY_TOKEN=xxx
-  token_env: "APIFY_TOKEN"
-  timeout_seconds: 300
+twitterapi:
+  # token 从环境变量读取,绝不写入此文件:  export TWITTERAPI_KEY=xxx
+  token_env: "TWITTERAPI_KEY"
+  timeout_seconds: 30
 
 # -----------------------------------------------------------------------------
 # 存储 / 输出

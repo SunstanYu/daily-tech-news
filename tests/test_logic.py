@@ -33,7 +33,7 @@ def load_cfg():
 def test_config_loads_and_has_required_sections():
     cfg = load_cfg()
     for key in ("rss_sources", "keywords_stream", "following_stream",
-                "apify", "storage", "output", "summarize"):
+                "twitterapi", "storage", "output", "summarize"):
         assert key in cfg, f"missing config section: {key}"
     assert cfg["keywords_stream"]["keywords"] == ["ai", "agent"]
     print("\n[config] sections present; keywords =", cfg["keywords_stream"]["keywords"])
@@ -92,44 +92,119 @@ def test_hn_algolia_offline(monkeypatch):
     print(f"\n[hn] parsed story with points={items[0]['metrics']['points']}")
 
 
-# --- X fetch (offline, injected apify call) -----------------------------------
-
-def test_keyword_query_construction():
-    cfg = load_cfg()
-    q = fetch_x.build_keyword_query(cfg)
-    assert "(ai OR agent)" in q
-    assert "min_faves:300" in q
-    assert "lang:en" in q
-    print(f"\n[x] keyword query = {q!r}")
-
+# --- X following stream (offline, injected TwitterAPI.io call) -----------------
 
 def test_following_query_none_when_empty():
     cfg = load_cfg()
-    assert fetch_x.build_following_query(cfg) is None
-    cfg["following_stream"]["handles"] = ["sama", "@ylecun"]
-    q = fetch_x.build_following_query(cfg)
-    assert "from:sama" in q and "from:ylecun" in q
+    q, since_dt = fetch_x.build_following_query(cfg)
+    assert q is None
+    print("\n[x] empty handles -> query None (stream will skip)")
+
+
+def test_following_query_construction():
+    cfg = load_cfg()
+    cfg["following_stream"]["handles"] = ["sama", "@ylecun", "AndrewYNg"]
+    cfg["following_stream"]["window_hours"] = 24
+    q, since_dt = fetch_x.build_following_query(cfg)
+    assert "from:sama" in q and "from:ylecun" in q and "from:AndrewYNg" in q
+    assert "@" not in q  # leading @ stripped
+    assert "since:" in q
+    assert since_dt is not None
     print(f"\n[x] following query = {q!r}")
 
 
-def test_tweet_normalization_and_injected_fetch():
+def test_window_hours_affects_since():
     cfg = load_cfg()
-    cfg["keywords_stream"]["enabled"] = True
-    raw_tweets = [
-        {"type": "tweet", "text": "hello #ai", "url": "https://x.com/t/1",
-         "likeCount": 10, "retweetCount": 2, "replyCount": 1, "quoteCount": 0,
-         "createdAt": "2026-06-23T00:00:00Z",
-         "author": {"userName": "alice", "followers": 999}},
+    cfg["following_stream"]["handles"] = ["sama"]
+    cfg["following_stream"]["window_hours"] = 6
+    _, since_6 = fetch_x.build_following_query(cfg)
+    cfg["following_stream"]["window_hours"] = 48
+    _, since_48 = fetch_x.build_following_query(cfg)
+    # 48h window reaches further back than 6h window
+    assert since_48 < since_6
+    print(f"\n[x] window_hours respected: 6h since={since_6:%H:%M} "
+          f"< 48h since={since_48:%H:%M}")
+
+
+def test_following_fetch_with_pagination_and_normalization():
+    cfg = load_cfg()
+    cfg["following_stream"]["enabled"] = True
+    cfg["following_stream"]["handles"] = ["alice", "bob"]
+    cfg["following_stream"]["window_hours"] = 24
+    os.environ["TWITTERAPI_KEY"] = "test-token"
+
+    # two pages, then stop
+    pages = [
+        {"tweets": [
+            {"id": "1", "text": "post from alice", "createdAt": _recent(),
+             "likeCount": 10, "retweetCount": 1, "replyCount": 0,
+             "author": {"userName": "alice", "followers": 100}},
+         ], "next_cursor": "C1", "has_next_page": True},
+        {"tweets": [
+            {"id": "2", "text": "post from bob", "createdAt": _recent(),
+             "likeCount": 5, "author": {"userName": "bob"}},
+         ], "next_cursor": "", "has_next_page": False},
     ]
-    def fake_call(actor_id, token, run_input, timeout=300):
-        return raw_tweets
-    items, rep = fetch_x.fetch_stream(cfg, "keywords_stream", apify_call=fake_call)
-    assert rep["ok"] and len(items) == 1
+    calls = {"n": 0}
+    def fake_search(token, query, cursor=None, timeout=30):
+        assert token == "test-token"
+        i = calls["n"]; calls["n"] += 1
+        return pages[i]
+
+    items, rep = fetch_x.fetch_following(cfg, search_fn=fake_search)
+    assert rep["ok"], rep
+    assert rep["count"] == 2, f"expected 2 tweets across 2 pages, got {rep}"
+    assert calls["n"] == 2, "should have paginated exactly twice"
     assert items[0]["author"] == "alice"
+    assert items[0]["stream"] == "following"
     assert items[0]["metrics"]["like"] == 10
-    assert items[0]["stream"] == "keywords"
-    print(f"\n[x] normalized tweet by {items[0]['author']}, "
-          f"engagement fields present")
+    assert items[0]["url"].startswith("https://x.com/alice/status/")
+    print(f"\n[x] paginated 2 pages -> {rep['count']} tweets, "
+          f"normalized with author+metrics+url")
+
+
+def test_following_fetch_filters_old_tweets():
+    """Tweets older than the window are dropped client-side."""
+    cfg = load_cfg()
+    cfg["following_stream"]["enabled"] = True
+    cfg["following_stream"]["handles"] = ["alice"]
+    cfg["following_stream"]["window_hours"] = 24
+    os.environ["TWITTERAPI_KEY"] = "test-token"
+
+    page = {"tweets": [
+        {"id": "1", "text": "recent", "createdAt": _recent(),
+         "author": {"userName": "alice"}},
+        {"id": "2", "text": "too old", "createdAt": _old(hours=72),
+         "author": {"userName": "alice"}},
+    ], "next_cursor": "", "has_next_page": False}
+
+    def fake_search(token, query, cursor=None, timeout=30):
+        return page
+
+    items, rep = fetch_x.fetch_following(cfg, search_fn=fake_search)
+    assert rep["fetched"] == 2 and rep["count"] == 1, rep
+    assert items[0]["title"] == "recent"
+    print(f"\n[x] window filter: fetched 2, kept 1 (dropped 72h-old tweet)")
+
+
+def test_following_skips_when_disabled():
+    cfg = load_cfg()
+    cfg["following_stream"]["enabled"] = False
+    items, rep = fetch_x.fetch_following(cfg)
+    assert rep.get("skipped") and items == []
+    print("\n[x] disabled stream skipped cleanly")
+
+
+def _recent():
+    import datetime as _dt
+    return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=2)) \
+        .strftime("%a %b %d %H:%M:%S %z %Y")
+
+
+def _old(hours):
+    import datetime as _dt
+    return (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)) \
+        .strftime("%a %b %d %H:%M:%S %z %Y")
 
 
 # --- dedup / sqlite -----------------------------------------------------------

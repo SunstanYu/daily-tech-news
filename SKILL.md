@@ -15,7 +15,7 @@ description: >
 
 ## 前置条件
 
-- 环境变量 `APIFY_TOKEN` 已设置(用于 X 抓取)。若未设置,X 流会失败但 RSS 流仍可用。
+- 环境变量 `TWITTERAPI_KEY` 已设置(用于 X 抓取)。若未设置,X 流会跳过但 RSS 流仍可用。
 - 依赖:`pip install feedparser requests pyyaml`
 - 所有可调参数在 `config.yaml`。不要在本文件或脚本里硬编码参数。
 
@@ -34,15 +34,22 @@ python3 fetch_rss.py --out /tmp/dtn_rss.json
 读取 report,若有源 FAIL,在最终 digest 的开头用一行注明哪些源没抓到
 (例如:"注:Meta AI / TLDR 本次未抓取成功"),不要因为个别源失败就中止。
 
-### Step 2: 抓取 X(确定性脚本)
+### Step 2: 抓取 X 关注用户推文(确定性脚本)
+
+抓取 config.yaml 中 `following_stream.handles` 列出的账号,在时间窗内(默认24h)
+发布的所有推文。通过 TwitterAPI.io 的 advanced_search,所有 handle 合并为一个
+`(from:a OR from:b ...)` 查询,按返回推文条数计费(小用量极便宜)。
 
 ```bash
 python3 fetch_x.py --out /tmp/dtn_x.json
+# 临时改时间窗(覆盖配置,例如抓最近 48 小时):
+# python3 fetch_x.py --window-hours 48 --out /tmp/dtn_x.json
 ```
 
-- 关键词流默认开启,关注流默认关闭(取决于 config.yaml)。
-- 若 `APIFY_TOKEN` 缺失或抓取失败,report 会标明;此时继续用 RSS 数据,
-  并在 digest 开头注明 X 流未成功。
+- 关键词热点流本版本未启用(热度排序后续再做)。
+- 若 `TWITTERAPI_KEY` 缺失、handles 为空、或抓取失败,report 会标明;
+  此时继续用 RSS 数据,并在 digest 开头注明 X 流未成功/已跳过。
+- 时间窗内没有推文是正常情况(不算失败)。
 
 ### Step 3: 合并、去重、排序(确定性脚本)
 

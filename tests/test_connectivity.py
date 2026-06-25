@@ -1,16 +1,16 @@
 """
 test_connectivity.py — REAL network tests. Run on YOUR machine.
 
-These hit live endpoints. RSS + HN are free. Apify costs a little money and
-is SKIPPED unless you pass --live-apify.
+These hit live endpoints. RSS + HN are free. TwitterAPI.io bills per returned tweet and
+is SKIPPED unless you pass --live.
 
 Usage:
     # free: test all RSS sources + HN
     python3 test_connectivity.py
 
-    # also test Apify (costs ~cents, needs APIFY_TOKEN)
-    export APIFY_TOKEN=xxx
-    python3 test_connectivity.py --live-apify
+    # also test TwitterAPI.io (per-tweet billing, needs token)
+    export TWITTERAPI_KEY=xxx
+    python3 test_connectivity.py --live
 
 This is a plain script (not pytest) so the output is easy to read: each source
 prints OK/FAIL + count + a sample title, so you can see exactly which feed URLs
@@ -58,60 +58,67 @@ def test_rss(cfg):
     return ok_count > 0
 
 
-def test_apify(cfg, live):
-    print(f"\n{'='*60}\nX / Apify\n{'='*60}")
+def test_twitterapi(cfg, live):
+    print(f"\n{'='*60}\nX / TwitterAPI.io (following stream)\n{'='*60}")
     # always show what query WOULD be sent (free)
-    kq = fetch_x.build_keyword_query(cfg)
-    fq = fetch_x.build_following_query(cfg)
-    print(f"{DIM}keyword query  : {kq}{RESET}")
+    fq, since_dt = fetch_x.build_following_query(cfg)
+    if fq is None:
+        print(f"{DIM}following_stream.handles 为空 —— 填入账号后才会抓取{RESET}")
+        return True
     print(f"{DIM}following query : {fq}{RESET}")
+    print(f"{DIM}since (UTC)     : {since_dt}{RESET}")
 
     if not live:
-        print(f"\n{DIM}跳过真实 Apify 调用(加 --live-apify 启用,会花少量钱){RESET}")
+        print(f"\n{DIM}跳过真实 TwitterAPI.io 调用"
+              f"(加 --live 启用,按返回推文条数计费,小用量极便宜){RESET}")
         return True
 
-    token = os.environ.get(cfg["apify"]["token_env"], "")
+    token = os.environ.get(cfg["twitterapi"]["token_env"], "")
     if not token:
-        line(False, "APIFY_TOKEN", "环境变量未设置")
+        line(False, cfg["twitterapi"]["token_env"], "环境变量未设置")
         return False
-    line(True, "APIFY_TOKEN", f"{DIM}已设置 (***{token[-4:]}){RESET}")
+    line(True, cfg["twitterapi"]["token_env"], f"{DIM}已设置 (***{token[-4:]}){RESET}")
 
-    # do a tiny real fetch to verify token + field shape
-    cfg2 = dict(cfg)
-    cfg2["keywords_stream"] = dict(cfg["keywords_stream"])
-    cfg2["keywords_stream"]["max_items"] = 50  # actor minimum is 50
-    cfg2["keywords_stream"]["enabled"] = True
-    items, rep = fetch_x.fetch_stream(cfg2, "keywords_stream")
+    if not cfg["following_stream"].get("enabled"):
+        print(f"{DIM}following_stream.enabled=false,临时打开以测试{RESET}")
+        cfg["following_stream"]["enabled"] = True
+
+    items, rep = fetch_x.fetch_following(cfg)
     if rep["ok"]:
-        sample = items[0] if items else None
-        detail = f"count={rep['count']}"
-        if sample:
-            detail += f" {DIM}@{sample['author']}: {sample['title'][:40]}{RESET}"
-        line(True, "keyword fetch", detail)
-        # verify expected fields exist
-        if sample:
-            for fld in ("author", "url", "metrics"):
-                ok = bool(sample.get(fld))
+        detail = f"count={rep['count']} (fetched {rep.get('fetched', '?')})"
+        if items:
+            s = items[0]
+            detail += f" {DIM}@{s['author']}: {s['title'][:40]}{RESET}"
+        line(True, "following fetch", detail)
+        if items:
+            for fld in ("author", "url", "metrics", "published"):
+                ok = bool(items[0].get(fld))
                 line(ok, f"field:{fld}", "" if ok else "缺失!")
+        else:
+            print(f"{DIM}注:时间窗内这些账号没有推文,属正常(不代表失败){RESET}")
     else:
-        line(False, "keyword fetch", rep.get("error", ""))
+        line(False, "following fetch", rep.get("error", ""))
     return rep["ok"]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None)
-    ap.add_argument("--live-apify", action="store_true",
-                    help="actually call Apify (costs money, needs APIFY_TOKEN)")
+    ap.add_argument("--live", action="store_true",
+                    help="actually call TwitterAPI.io (needs token; per-tweet billing)")
+    ap.add_argument("--window-hours", type=int, default=None,
+                    help="override following_stream.window_hours for this test")
     args = ap.parse_args()
 
     cfg = common.load_config(args.config)
+    if args.window_hours is not None:
+        cfg["following_stream"]["window_hours"] = args.window_hours
     rss_ok = test_rss(cfg)
-    apify_ok = test_apify(cfg, args.live_apify)
+    x_ok = test_twitterapi(cfg, args.live)
 
     print(f"\n{'='*60}")
     print(f"RSS: {'OK' if rss_ok else 'FAIL'}  |  "
-          f"Apify: {'OK' if apify_ok else 'SKIPPED/FAIL'}")
+          f"TwitterAPI.io: {'OK' if x_ok else 'SKIPPED/FAIL'}")
     print(f"{'='*60}")
 
 

@@ -11,7 +11,7 @@ daily-tech-news/
 ├── scripts/
 │   ├── common.py            # 配置加载 / 统一数据结构 / 去重key / HTML清洗
 │   ├── fetch_rss.py         # RSS + Hacker News 抓取(type分发处理器)
-│   ├── fetch_x.py           # Apify 抓 X(关键词流 + 关注流)
+│   ├── fetch_x.py           # TwitterAPI.io 抓 X 关注用户(时间窗内推文)
 │   ├── dedup_store.py       # SQLite 去重 + 存储 + 历史
 │   ├── rank.py              # 热度排序(独立作者数 × 互动量)
 │   └── build_digest.py      # 组装 digest_raw.json
@@ -64,25 +64,29 @@ python3 fetch_rss.py --only "OpenAI" --report-only
 python3 fetch_rss.py --out /tmp/rss_items.json
 ```
 
-### 2b. X 抓取(需要 Apify token,会花少量钱)
+### 2b. X 关注用户抓取(需要 TwitterAPI.io token)
 
-先设置 token(不会写入任何文件):
+先在 config.yaml 填入要抓的账号(following_stream.handles,不带@),然后设置 token:
 ```bash
-export APIFY_TOKEN=your_apify_token_here
+export TWITTERAPI_KEY=your_token_here
 ```
 
 先只看会发出什么 query(不调 API、不花钱):
 ```bash
-python3 fetch_x.py --print-queries
+python3 fetch_x.py --print-query
 ```
 
-真实抓取(会调 Apify,按 $0.40/1000 条计费):
+真实抓取(TwitterAPI.io 按返回推文条数计费 $0.15/1000 条,关注用户的小用量极便宜):
 ```bash
 python3 fetch_x.py --out /tmp/x_items.json
+# 改时间窗(默认24h),例如最近48小时:
+python3 fetch_x.py --window-hours 48 --out /tmp/x_items.json
 ```
 
-注意:关注流默认关闭(following_stream.enabled: false)。
-要启用就在 config.yaml 填 handles 并改 enabled: true。
+说明:
+- handles 为空 → 自动跳过(不报错)。
+- 时间窗内没有推文 → 正常,不算失败。
+- 关键词热点流本版本未启用(热度排序后续再做)。
 
 ### 2c. 完整链路(真实数据)
 
@@ -90,7 +94,7 @@ python3 fetch_x.py --out /tmp/x_items.json
 cd scripts
 # 1. 抓 RSS + HN
 python3 fetch_rss.py --out /tmp/rss.json
-# 2. 抓 X(需 APIFY_TOKEN)
+# 2. 抓 X 关注用户(需 TWITTERAPI_KEY + config 里填了 handles)
 python3 fetch_x.py --out /tmp/x.json
 # 3. 合并两份的 items 后去重(下面用 python 合并)
 python3 -c "
@@ -100,8 +104,8 @@ b=json.load(open('/tmp/x.json'))['items']
 json.dump({'items':a+b}, open('/tmp/all.json','w'), ensure_ascii=False)
 "
 python3 dedup_store.py --in /tmp/all.json --out /tmp/new.json
-# 4. 排序关键词流
-python3 rank.py --in /tmp/new.json --out /tmp/topics.json
+# 4. 本版本未启用关键词热点流,topics 传空
+echo '{"topics": []}' > /tmp/topics.json
 # 5. 组装 digest(curated = 去重后的 RSS/following)
 python3 -c "
 import json
@@ -117,10 +121,11 @@ python3 build_digest.py --curated /tmp/curated.json --topics /tmp/topics.json
 
 全部参数在 `config.yaml`,常改的:
 - `rss_sources`: 增删源(标准 RSS 只需加一行 type: rss + url)
-- `keywords_stream.keywords`: 关键词(默认 ["ai","agent"])
-- `keywords_stream.min_faves`: X 互动阈值(默认 300)
-- `keywords_stream.unique_authors_weight / engagement_weight`: 热度权重
-- `following_stream.handles`: 你关注的账号(默认空)
+- `following_stream.handles`: 你关注的账号用户名(不带@,默认空)
+- `following_stream.window_hours`: 抓取时间窗(默认 24 小时)
+- `following_stream.exclude_retweets / exclude_replies`: 是否过滤转推/回复
+- `twitterapi.token_env`: token 的环境变量名(默认 TWITTERAPI_KEY)
+- `keywords_stream.*`: 关键词热点流(本版本关闭,后续做热度排序时再启用)
 
 ## 已知限制
 
