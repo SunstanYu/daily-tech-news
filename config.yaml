@@ -68,7 +68,7 @@ rss_sources:
 # -----------------------------------------------------------------------------
 following_stream:
   enabled: true               # 填好 handles 后即可用;handles 为空会自动跳过
-  handles: []                 # 你关注的账号用户名(不带@),例: ["sama", "ylecun"]
+  handles: ["sama", "ylecun"]                 # 你关注的账号用户名(不带@),例: ["sama", "ylecun"]
   window_hours: 24            # 抓取最近多少小时内的推文(默认24h,可命令行 --window-hours 覆盖)
   lang: null                  # 限定语言留 null = 不限;如只要英文填 "en"
   exclude_retweets: false     # true = 过滤转推
