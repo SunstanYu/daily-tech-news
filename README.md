@@ -132,3 +132,25 @@ python3 build_digest.py --curated /tmp/curated.json --topics /tmp/topics.json
 - 聚类是 v1 轻量版(hashtag/cashtag/关键词),不做语义聚类
 - velocity(跨天增长率)未实现,当前是绝对热度
 - 摘要步骤属于阶段二(SKILL.md + delegate_task)
+
+## 当前问题
+
+### 离线逻辑测试: test_following_query_none_when_empty 失败
+
+```
+FAILED tests/test_logic.py::test_following_query_none_when_empty
+```
+
+**原因:** 该测试调用 `load_cfg()` 加载真实 config.yaml,预期 `handles` 为空列表(应返回 `None`)。但 config.yaml 中 `following_stream.handles` 已被用户设置为 `["sama", "ylecun"]`,导致返回了构造好的查询字符串而非 `None`。
+
+**修复方案:** 测试中应在调用 `build_following_query` 前显式设置 `cfg["following_stream"]["handles"] = []`,不依赖 config 默认值。
+
+### 在线真实数据测试
+
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| RSS 抓取 | ✅ 4/6 源可用 | OpenAI(1020), Google Research(100), TLDR AI(20), Hacker News(30) 正常; Meta AI 和 The Rundown AI 均返回 404 |
+| X following 抓取 | ✅ 正常 | 从 ylecun/sama 抓取到 4 条推文,含完整 metrics |
+| SQLite 去重 | ✅ 正常 | 首次 1170 new/0 dup,二次 0 new/1170 dup,去重逻辑正确 |
+| Meta AI RSS | ❌ 404 | `ai.meta.com/blog/rss/` 无公开 feed |
+| The Rundown RSS | ❌ 404 | `www.therundown.ai/feed` 无公开 feed |
