@@ -120,12 +120,18 @@ python3 build_digest.py --curated /tmp/curated.json --topics /tmp/topics.json
 ## 配置说明
 
 全部参数在 `config.yaml`,常改的:
-- `rss_sources`: 增删源(标准 RSS 只需加一行 type: rss + url)
+- `rss_defaults.window_hours`: RSS 抓取时间窗(默认 48 小时,只保留 `published` 落在窗口内的条目)
+- `rss_defaults.max_items`: 每源截断上限(默认 30,时间窗过滤后再硬截断)
+- `rss_sources`: 增删源(标准 RSS 只需加一行 type: rss + url);每个源可独立 override 上面两项
 - `following_stream.handles`: 你关注的账号用户名(不带@,默认空)
-- `following_stream.window_hours`: 抓取时间窗(默认 24 小时)
+- `following_stream.window_hours`: X 抓取时间窗(默认 24 小时)
 - `following_stream.exclude_retweets / exclude_replies`: 是否过滤转推/回复
 - `twitterapi.token_env`: token 的环境变量名(默认 TWITTERAPI_KEY)
 - `keywords_stream.*`: 关键词热点流(本版本关闭,后续做热度排序时再启用)
+
+为什么有 `rss_defaults`:像 OpenAI 这种 feed 会 dump 上千条历史(实测 1021 条),
+不加时间窗会让下游摘要环节直接爆掉。`window_hours` 解决正常情况,`max_items`
+兜底防御 feed 不带 `published` 或时间戳异常的情况。
 
 ## 已知限制
 
@@ -133,25 +139,14 @@ python3 build_digest.py --curated /tmp/curated.json --topics /tmp/topics.json
 - velocity(跨天增长率)未实现,当前是绝对热度
 - 摘要步骤属于阶段二(SKILL.md + delegate_task)
 
-## 当前问题
-
-### 离线逻辑测试: test_following_query_none_when_empty 失败
-
-```
-FAILED tests/test_logic.py::test_following_query_none_when_empty
-```
-
-**原因:** 该测试调用 `load_cfg()` 加载真实 config.yaml,预期 `handles` 为空列表(应返回 `None`)。但 config.yaml 中 `following_stream.handles` 已被用户设置为 `["sama", "ylecun"]`,导致返回了构造好的查询字符串而非 `None`。
-
-**修复方案:** 测试中应在调用 `build_following_query` 前显式设置 `cfg["following_stream"]["handles"] = []`,不依赖 config 默认值。
-
-### 在线真实数据测试
+## 在线真实数据测试
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| RSS 抓取 | ✅ 6/6 源可用 | OpenAI, Google Research, DeepMind, TLDR AI, Hugging Face, Hacker News 全部连通 |
+| RSS 抓取 | ✅ 6/6 源可用 | OpenAI, Google Research, DeepMind, TLDR AI, Hugging Face, Hacker News 全部连通;48h 窗口将原始 2082 条砍到约 10 条 |
 | X following 抓取 | ✅ 正常 | 从 ylecun/sama 抓取到 4 条推文,含完整 metrics |
 | SQLite 去重 | ✅ 正常 | 首次 1170 new/0 dup,二次 0 new/1170 dup,去重逻辑正确 |
+| 摘要去重(`summarized_at`)| ✅ 离线测试通过 | `dedup_store.py mark-summarized` 后再 `filter-pending` 可正确跳过 |
 
 > 历史:Meta AI(`ai.meta.com/blog/rss/`)与 The Rundown AI(`www.therundown.ai/feed`)
 > 均返回 404,已分别替换为 DeepMind 与 Hugging Face(均确认有公开 feed)。

@@ -96,6 +96,7 @@ def test_hn_algolia_offline(monkeypatch):
 
 def test_following_query_none_when_empty():
     cfg = load_cfg()
+    cfg["following_stream"]["handles"] = []   # don't rely on the config default
     q, since_dt = fetch_x.build_following_query(cfg)
     assert q is None
     print("\n[x] empty handles -> query None (stream will skip)")
@@ -317,6 +318,149 @@ def test_build_digest_numbering_and_order():
     assert "hotness" in entries[0]
     print(f"\n[digest] {len(entries)} entries, hot-first, ids={ids}, "
           f"summary/angle left empty for agent")
+
+
+# --- RSS volume control: window + per-source cap ------------------------------
+
+def test_parse_published_recognizes_common_formats():
+    import datetime as _dt
+    # RFC822 (most RSS), ISO with Z (HN algolia), ISO with offset
+    rfc = "Tue, 24 Jun 2026 12:00:00 +0000"
+    iso_z = "2026-06-24T12:00:00Z"
+    iso_off = "2026-06-24T12:00:00+00:00"
+    for s in (rfc, iso_z, iso_off):
+        d = fetch_rss._parse_published(s)
+        assert d is not None and d.tzinfo is not None, s
+        assert d.year == 2026 and d.hour == 12
+    assert fetch_rss._parse_published("not a date") is None
+    assert fetch_rss._parse_published(None) is None
+    print("\n[fetch_rss] _parse_published handles RFC822, ISO Z, ISO offset")
+
+
+def test_apply_window_drops_old_keeps_undated():
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    items = [
+        {"title": "recent",  "published": (now - _dt.timedelta(hours=6)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+        {"title": "too_old", "published": (now - _dt.timedelta(hours=100)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+        {"title": "undated", "published": None},
+    ]
+    kept, stats = fetch_rss._apply_window_and_cap(items, window_hours=48, max_items=999)
+    titles = [i["title"] for i in kept]
+    assert "recent" in titles and "undated" in titles
+    assert "too_old" not in titles
+    assert stats["dropped_old"] == 1 and stats["undated_kept"] == 1
+    print(f"\n[fetch_rss] window=48h dropped 1 old, kept undated; stats={stats}")
+
+
+def test_apply_cap_truncates_to_max_items():
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    items = [
+        {"title": f"a{i}",
+         "published": (now - _dt.timedelta(hours=i)).strftime("%a, %d %b %Y %H:%M:%S +0000")}
+        for i in range(50)
+    ]
+    kept, stats = fetch_rss._apply_window_and_cap(items, window_hours=999, max_items=10)
+    assert len(kept) == 10
+    assert kept[0]["title"] == "a0", "newest first"
+    assert stats["capped"] == 40
+    print(f"\n[fetch_rss] capped 50 -> 10 newest-first; capped={stats['capped']}")
+
+
+def test_fetch_all_uses_defaults_and_per_source_override(monkeypatch):
+    """Per-source window_hours/max_items wins over rss_defaults."""
+    cfg = {
+        "rss_defaults": {"window_hours": 48, "max_items": 30},
+        "rss_sources": [
+            {"name": "Override", "type": "rss", "url": "http://x", "enabled": True,
+             "window_hours": 1, "max_items": 2},
+        ],
+    }
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+
+    def fake_handler(src):
+        return [
+            {"title": "h0", "published": (now - _dt.timedelta(minutes=10)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+            {"title": "h1", "published": (now - _dt.timedelta(minutes=20)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+            {"title": "h2", "published": (now - _dt.timedelta(minutes=30)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+            {"title": "old", "published": (now - _dt.timedelta(hours=5)).strftime("%a, %d %b %Y %H:%M:%S +0000")},
+        ]
+    monkeypatch.setitem(fetch_rss.HANDLERS, "rss", fake_handler)
+    items, report = fetch_rss.fetch_all(cfg)
+    # 1h window kills "old"; max_items=2 caps to 2 newest
+    assert [i["title"] for i in items] == ["h0", "h1"]
+    f = report[0]["filter"]
+    assert f["dropped_old"] == 1 and f["capped"] == 1
+    print(f"\n[fetch_rss] per-source override beat defaults; filter={f}")
+
+
+# --- dedup_store: summarized_at -----------------------------------------------
+
+def test_summarized_at_migration_on_legacy_db(tmp_path):
+    """Old DBs missing summarized_at must be auto-migrated by connect()."""
+    import sqlite3
+    db = tmp_path / "legacy.db"
+    legacy = sqlite3.connect(str(db))
+    legacy.execute("""
+        CREATE TABLE items (
+          dedup_key TEXT PRIMARY KEY, source TEXT, stream TEXT, title TEXT,
+          url TEXT, published TEXT, summary TEXT, author TEXT, metrics TEXT,
+          first_seen TEXT
+        )
+    """)
+    legacy.execute("INSERT INTO items (dedup_key, first_seen) VALUES ('k1', '2026-01-01')")
+    legacy.commit()
+    legacy.close()
+
+    conn = dedup_store.connect(str(db))
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(items)").fetchall()}
+    assert "summarized_at" in cols, "migration should have added the column"
+    # legacy row should still be there with NULL summarized_at
+    row = conn.execute("SELECT dedup_key, summarized_at FROM items WHERE dedup_key='k1'").fetchone()
+    assert row == ("k1", None)
+    conn.close()
+    print("\n[dedup_store] legacy DB migrated: summarized_at added, data preserved")
+
+
+def test_mark_summarized_and_filter_pending_roundtrip():
+    cfg = load_cfg()
+    conn = dedup_store.connect(":memory:")
+    batch = [
+        common.make_item(source="S", stream="rss", title="A", url="https://x/a"),
+        common.make_item(source="S", stream="rss", title="B", url="https://x/b"),
+        common.make_item(source="S", stream="rss", title="C", url="https://x/c"),
+    ]
+    dedup_store.process(cfg, batch, conn=conn)
+
+    # Before marking, all three are still pending.
+    pending, skipped = dedup_store.filter_summarized_out(batch, conn)
+    assert len(pending) == 3 and skipped == 0
+
+    # Mark A + B as summarized; only C should remain pending next time.
+    n = dedup_store.mark_summarized(conn, [batch[0]["dedup_key"], batch[1]["dedup_key"]])
+    assert n == 2
+    pending, skipped = dedup_store.filter_summarized_out(batch, conn)
+    assert [p["title"] for p in pending] == ["C"]
+    assert skipped == 2
+    # Items not yet in DB are treated as pending (haven't been summarized).
+    fresh = common.make_item(source="S", stream="rss", title="D", url="https://x/d")
+    pending2, _ = dedup_store.filter_summarized_out([fresh], conn)
+    assert pending2 == [fresh]
+    print("\n[dedup_store] mark_summarized + filter_summarized_out round-trip OK")
+
+
+# --- digest: carries dedup_key for the mark-summarized hand-off ---------------
+
+def test_digest_curated_entries_carry_dedup_key():
+    cfg = load_cfg()
+    curated = [common.make_item(source="OpenAI", stream="rss", title="t",
+                                url="https://o/1", summary="s")]
+    digest = build_digest.build(cfg, curated, [])
+    e = digest["entries"][0]
+    assert e["dedup_key"] == curated[0]["dedup_key"]
+    print(f"\n[digest] curated entry carries dedup_key={e['dedup_key']}")
 
 
 if __name__ == "__main__":

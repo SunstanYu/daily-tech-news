@@ -10,6 +10,16 @@
 #   "rss"     -> 通用 feedparser(绝大多数标准 feed,加源只需加一行)
 #   "algolia" -> Hacker News 专用 API 处理器
 # 加新的标准 RSS 源:复制一个 type: rss 的条目,改 name + url 即可。
+
+# 全局过滤(每源可单独 override 同名字段):
+#   window_hours -> 只保留 published 落在最近 N 小时内的条目
+#                  (像 OpenAI 这种 dump 全站历史的 feed 必须靠这个砍量)
+#   max_items    -> 时间窗过滤后再硬截断的条数上限
+#                  (防御:某些 feed 不带 published 或时间戳异常时不能让窗口失守)
+rss_defaults:
+  window_hours: 48
+  max_items: 30
+
 rss_sources:
   - name: "OpenAI"
     type: "rss"

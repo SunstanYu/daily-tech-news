@@ -26,6 +26,7 @@ def curated_entries(items):
         if it.get("stream") not in ("rss", "following"):
             continue
         out.append({
+            "dedup_key": it["dedup_key"],   # so agent can mark-summarized later
             "title": it["title"],
             "url": it["url"],
             "source": it["source"],
@@ -46,6 +47,7 @@ def hot_entries(topics):
     for t in topics:
         rep = t["representative"]
         out.append({
+            "dedup_key": rep.get("dedup_key"),  # agent uses this to mark-summarized
             "title": rep["title"],
             "url": rep["url"],
             "source": "X (hot topic)",

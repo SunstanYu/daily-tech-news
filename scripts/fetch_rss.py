@@ -7,10 +7,17 @@ RSS source = one config entry, zero code. Adding a new TYPE = one handler func.
 Each handler returns a list of normalized items (see common.make_item).
 Network errors are caught per-source so one dead feed never breaks the run;
 the failure is reported in the result so connectivity tests can surface it.
+
+Volume control (handled in fetch_all, after each handler):
+  - window_hours: drop items older than now - window_hours
+  - max_items:    cap per-source count after the window filter (safety net for
+                  feeds with missing/broken `published` timestamps)
+Defaults come from config.rss_defaults; each source entry can override either.
 """
 import sys
 import json
 import argparse
+import datetime as dt
 
 import requests
 
@@ -86,13 +93,92 @@ HANDLERS = {
 }
 
 
+# --- Per-source post-filter (window + cap) ------------------------------------
+
+# RFC822 / ISO8601 variants we see across real-world feeds.
+_PUBLISHED_FORMATS = (
+    "%a, %d %b %Y %H:%M:%S %z",      # RFC822 with timezone
+    "%a, %d %b %Y %H:%M:%S %Z",      # RFC822 with named TZ (e.g. GMT)
+    "%Y-%m-%dT%H:%M:%S%z",            # ISO with offset
+    "%Y-%m-%dT%H:%M:%SZ",             # ISO with Z
+    "%Y-%m-%dT%H:%M:%S.%f%z",         # ISO with fractional + offset
+    "%Y-%m-%dT%H:%M:%S.%fZ",          # ISO with fractional + Z
+    "%Y-%m-%d %H:%M:%S%z",            # space-separated with offset
+)
+
+
+def _parse_published(value):
+    """Best-effort parse of a feed item's published string. Returns aware
+    datetime in UTC, or None if no recognizable format matched."""
+    if not value:
+        return None
+    s = value.strip()
+    # Normalize trailing "Z" so %z can pick it up via the .%fZ / Z formats.
+    for fmt in _PUBLISHED_FORMATS:
+        try:
+            d = dt.datetime.strptime(s, fmt)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=dt.timezone.utc)
+            return d.astimezone(dt.timezone.utc)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _apply_window_and_cap(items, window_hours, max_items):
+    """
+    Drop items older than now - window_hours (items without a parseable
+    `published` are kept — we can't filter what we can't date), then sort
+    by `published` desc (None last) and truncate to max_items.
+
+    Returns (kept_items, stats_dict). stats has: dropped_old, undated_kept,
+    capped, before, after — useful for the per-source report.
+    """
+    now = dt.datetime.now(dt.timezone.utc)
+    cutoff = now - dt.timedelta(hours=window_hours) if window_hours else None
+
+    kept = []
+    dropped_old = 0
+    undated_kept = 0
+    for it in items:
+        d = _parse_published(it.get("published"))
+        if d is None:
+            undated_kept += 1
+            kept.append((None, it))
+            continue
+        if cutoff is not None and d < cutoff:
+            dropped_old += 1
+            continue
+        kept.append((d, it))
+
+    # Dated items first (newest first); undated tail at the end.
+    kept.sort(key=lambda pair: pair[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+              reverse=True)
+    capped = 0
+    if max_items and len(kept) > max_items:
+        capped = len(kept) - max_items
+        kept = kept[:max_items]
+
+    return [it for _, it in kept], {
+        "before": len(items),
+        "after": len(kept),
+        "dropped_old": dropped_old,
+        "undated_kept": undated_kept,
+        "capped": capped,
+    }
+
+
 # --- Orchestration ------------------------------------------------------------
 
 def fetch_all(config, only_source=None):
     """
-    Returns (items, report). `report` lists per-source status so callers /
-    tests can see exactly which feeds worked.
+    Returns (items, report). `report` lists per-source status (incl. window
+    /cap filter stats) so callers / tests can see exactly what each feed did.
     """
+    defaults = config.get("rss_defaults") or {}
+    default_window = defaults.get("window_hours")
+    default_cap = defaults.get("max_items")
+
     items = []
     report = []
     for src in config.get("rss_sources", []):
@@ -107,9 +193,15 @@ def fetch_all(config, only_source=None):
             continue
         try:
             got = handler(src)
-            items.extend(got)
-            report.append({"source": src["name"], "ok": True, "count": len(got),
-                           "sample_title": got[0]["title"] if got else None})
+            window_hours = src.get("window_hours", default_window)
+            max_items = src.get("max_items", default_cap)
+            filtered, fstats = _apply_window_and_cap(got, window_hours, max_items)
+            items.extend(filtered)
+            report.append({
+                "source": src["name"], "ok": True, "count": len(filtered),
+                "sample_title": filtered[0]["title"] if filtered else None,
+                "filter": fstats,
+            })
         except Exception as ex:  # noqa: BLE001 - we want to keep going
             report.append({"source": src["name"], "ok": False,
                            "error": f"{type(ex).__name__}: {ex}", "count": 0})
@@ -132,7 +224,12 @@ def main():
         for r in report:
             status = "OK " if r["ok"] else "FAIL"
             extra = r.get("sample_title") or r.get("error") or ""
-            print(f"[{status}] {r['source']:<18} count={r['count']:<3} {extra}")
+            f = r.get("filter") or {}
+            filt = ""
+            if f:
+                filt = (f" (raw={f['before']} dropped_old={f['dropped_old']}"
+                        f" undated={f['undated_kept']} capped={f['capped']})")
+            print(f"[{status}] {r['source']:<18} count={r['count']:<3}{filt} {extra}")
         ok = sum(1 for r in report if r["ok"])
         print(f"\n{ok}/{len(report)} sources reachable")
         return
