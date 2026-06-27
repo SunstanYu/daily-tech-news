@@ -82,11 +82,11 @@ def build(cfg, curated_items, ranked_topics, reports=None):
     notes = []
     if reports:
         for r in reports:
+            stream = r.get("stream") or r.get("source", "?")
             if not r.get("ok", True):
-                notes.append(f"注: {r['stream']} 本次未抓取成功 ({r.get('error', 'unknown')})")
-            elif r.get("item_count", 0) == 0 and r.get("ok"):
-                stream = r.get("stream", "")
-                if "following" in stream:
+                notes.append(f"注: {stream} 本次未抓取成功 ({r.get('error', 'unknown')})")
+            elif r.get("item_count", r.get("count", 0)) == 0 and r.get("ok"):
+                if "following" in stream.lower():
                     notes.append("注: X following 流在时间窗内无推文")
                 # keyword stream with 0 items is normal when disabled
 
