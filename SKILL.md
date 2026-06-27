@@ -145,12 +145,27 @@ cd /home/bitnami/daily-tech-news
    /opt/bitnami/python/bin/python3 scripts/dedup_store.py mark-summarized --keys-file digests/digest_final.json
    ```
 
-### Step 6: 呈现给用户
+### Step 6: 输出到个人站点（确定性脚本）
 
-把 digest_final.md 的内容发给用户,并提示:
-"看完后告诉我做哪条(例如'做 #7 的小红书版'),我会交给对应的内容生成 skill。"
+将所有 `/tmp/dtn_summaries/N.json` 的 summary + angle 整合后，将 digest_final.json 转为
+personal-site 站点的 news 格式并 git push：
 
-如果 Step 3 发现条目数为 0,直接告诉用户:"今日无新条目,所有最近内容都已在之前的摘要中。"
+```bash
+cd /home/bitnami/daily-tech-news
+/opt/bitnami/python/bin/python3 scripts/export_personal_site.py
+```
+
+该脚本读取 `digests/digest_final.json`，生成 `personal-site/src/content/news/YYYY-MM-DD.md`，
+并在 personal-site 仓内自动 git commit + push 到 main。
+
+**如果个人站点仓库不存在或 git push 失败，脚本会打印警告但不中止。**
+
+### Step 7: 呈现给用户
+
+把 digest_final.md 的内容发给用户，并提示：
+"看完后告诉我做哪条（例如'做 #7 的小红书版'），我会交给对应的内容生成 skill。"
+
+如果 Step 3 发现条目数为 0，直接告诉用户："今日无新条目，所有最近内容都已在之前的摘要中。"
 
 ## 重要原则
 
