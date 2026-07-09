@@ -233,8 +233,13 @@ cd /home/bitnami/daily-tech-news
 
 ### Step 7: 呈现给用户
 
-把 digest_final.md 的内容发给用户，并提示：
-"看完后告诉我做哪条（例如'做 #7 的小红书版'），我会交给对应的内容生成 skill。"
+**简短汇报，不要读取 digest_final.md 全文。只输出一行状态：**
+
+- 有条目时：`📰 {date} 新闻更新完成，更新了 {entry_count} 条。`
+（`date` 格式用"2026年7月9日"，`entry_count` 从 digest_final.json 读取 `entry_count` 字段即可，1 次 terminal 或 file read 搞定）
+- 无条目时：`今日无新条目，所有最近内容都已在之前的摘要中。`
+
+**不要逐条列出摘要，不要读取 digest_final.md 全文。** 用户需要看完整内容可以去 ~/daily-tech-news/digests/digest_final.md 或者个人站点查阅。
 
 如果 Step 3 发现条目数为 0，直接告诉用户："今日无新条目，所有最近内容都已在之前的摘要中。"
 
