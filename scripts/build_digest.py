@@ -15,8 +15,11 @@ import os
 import json
 import argparse
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from common import load_config, resolve_path
+
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 
 def curated_entries(items):
@@ -79,7 +82,7 @@ def build(cfg, curated_items, ranked_topics):
 
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "date": dt.date.today().isoformat(),
+        "date": dt.datetime.now(LOCAL_TZ).date().isoformat(),
         "entry_count": len(entries),
         "entries": entries,
     }
