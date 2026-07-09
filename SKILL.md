@@ -5,7 +5,7 @@ description: >
   + X 关键词热点,去重、按热度排序,然后为每条生成摘要和"内容角度建议",产出一份
   带编号的 digest 供用户挑选。当用户说"抓今天的新闻""今日科技热点""跑一下新闻摘要"
   等类似请求时使用本 skill。
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Daily Tech News Skill
@@ -38,8 +38,8 @@ echo $([ -n "$TWITTERAPI_KEY" ] && echo "TWITTERAPI_KEY=SET" || echo "X fetch=SK
 **以下命令在主 session shell 中执行，不在 delegate_task 子 agent 内。**
 
 ```bash
-cd /home/bitnami/daily-tech-news/scripts
-/opt/bitnami/python/bin/python3 fetch_rss.py --out /tmp/dtn_rss.json
+cd /home/bitnami/daily-tech-news
+/opt/bitnami/python/bin/python3 scripts/fetch_rss.py --out /tmp/dtn_rss.json
 ```
 
 输出包含 `items`(归一化条目)和 `report`(每个源的成功/失败状态)。
@@ -59,20 +59,43 @@ cd /home/bitnami/daily-tech-news/scripts
   此时继续用 RSS 数据,并在 digest 开头注明 X 流未成功/已跳过。
 - 时间窗内没有推文是正常情况(不算失败)。
 
+### Step 2b: X 推文内容筛选（确定性脚本）
+
+过滤抓取到的 X 推文，只保留与投资/科技/AI/商业赚钱相关的内容，剔除生活分享/搞笑推文等无关内容。**带转发评论的 quote tweet 保留。**
+
+```bash
+cd /home/bitnami/daily-tech-news
+/opt/bitnami/python/bin/python3 scripts/filter_x_content.py --in /tmp/dtn_x.json --out /tmp/dtn_x_filtered.json
+# 若 X 流为空或跳过，直接复制原文件：
+cp /tmp/dtn_x.json /tmp/dtn_x_filtered.json
+```
+
+脚本说明：
+- 保留：投资融资、AI/大模型/技术讨论、科技公司动态、商业赚钱相关内容
+- 保留：带评论的转发推文（quote tweet，作者写了转发/推荐原因）
+- 剔除：生活分享、心情吐槽、日常闲聊、搞笑段子
+- 混合内容（既有生活又有科技）**保留**（宁多勿漏）
+- 过滤报告会写入 output JSON 的 report 字段
+
 ### Step 3: 合并、去重、排序（确定性脚本）
 
 ```bash
-# 合并两份 items
+# 合并两份 items（使用过滤后的 X 数据）
 /opt/bitnami/python/bin/python3 -c "
 import json
 a=json.load(open('/tmp/dtn_rss.json'))['items']
-b=json.load(open('/tmp/dtn_x.json'))['items']
+b=json.load(open('/tmp/dtn_x_filtered.json'))['items']
 json.dump({'items':a+b}, open('/tmp/dtn_all.json','w'), ensure_ascii=False)
 "
-# 去重 + 过滤已摘要的条目（SQLite 自动跳过近期已见过 or 已标记 sumamrized 的条目）
+# 去重 + 过滤已摘要的条目
+# 注意：dedup=0 不代表没有待处理条目！已入库但未摘要的条目会出现在 filter-pending/db-pending 中。
+# 即使 dedup=0，也必须继续走 filter-pending → build_digest 流程。
 /opt/bitnami/python/bin/python3 dedup_store.py --in /tmp/dtn_all.json --out /tmp/dtn_new.json
-# 过滤掉已经做过摘要的条目（summarized_at IS NOT NULL 的被跳过）
+# 方法1：从文件去重流提取 pending（适用于新抓取的条目）
 /opt/bitnami/python/bin/python3 dedup_store.py filter-pending --in /tmp/dtn_new.json --out /tmp/dtn_pending.json
+# 方法2（推荐）：直接从 DB 提取所有未摘要条目，不依赖 dedup 结果
+# 这确保即使 dedup=0，之前抓了但没做摘要的条目也不会被遗漏
+/opt/bitnami/python/bin/python3 dedup_store.py db-pending --out /tmp/dtn_pending.json --window-days 7
 
 # 对关键词流做热度排序（当前为空，不影响流程）
 /opt/bitnami/python/bin/python3 rank.py --in /tmp/dtn_pending.json --out /tmp/dtn_topics.json
@@ -91,35 +114,83 @@ json.dump({'items':curated}, open('/tmp/dtn_curated.json','w'), ensure_ascii=Fal
 `id`(编号)、`title`、`url`、`source`、`stream`、`raw_summary`、`dedup_key`。
 `summary` 和 `angle` 字段为 null —— 这是下一步要填的。
 
-> **重要**: 如果 dedup/pending 过滤后条目数为 0（说明今天没有新条目，或昨天的都已摘要），
-> 直接跳到 Step 6 告诉用户"今日无新条目"，不需要启动子 agent。
+> **重要**: 判断是否需要继续流程的标准是 **pending 条目数**，不是 dedup 结果。
+> - `dedup_store.py --in` 返回 `new=0` 是正常的（说明今天抓到的 URL 7 天内已入库过）。
+> - 关键看 `db-pending` 或 `filter-pending` 的输出：如果 pending 条目数 > 0，继续走 Step 4-6。
+> - 只有当 db-pending/filter-pending 也返回 0 条时，才跳到 Step 6 说"今日无新条目"。
 
-### Step 4: 逐条摘要（delegate_task 子 agent，确定性脚本分发）
+### Step 4: 逐条摘要（delegate_task 子 agent，单任务汇总）
 
-**不要手动构造 delegate_task 参数。使用 `dispatch_summaries.py` 生成精确 JSON。**
+**无论今日抓到多少条新内容（哪怕只有 1 条），都必须走子 agent 做总结归类。不要自己跳过摘要或者直接手动写摘要。**
+
+不要手动构造 delegate_task 参数。使用 `dispatch_summaries.py` 生成精确 JSON。
 
 ```bash
 cd /home/bitnami/daily-tech-news
-/opt/bitnami/python/bin/python3 scripts/dispatch_summaries.py --digest /tmp/dtn_digest_raw.json --batch-size 3
+/opt/bitnami/python/bin/python3 scripts/dispatch_summaries.py --digest /tmp/dtn_digest_raw.json
 ```
 
-该脚本输出:
-- `/tmp/dtn_batches/001.json`, `002.json`, ... — 每批的精确 delegate_task(tasks=[...]) 参数
-- `/tmp/dtn_batches/PROMPT.md` — 主 agent 的分批操作指令
+该脚本将所有条目打包成 **1 个 sub-agent 任务**，因为子 agent 不需要抓网页（只做总结归类），单任务即可完成。
+
+脚本输出:
+- `/tmp/dtn_batches/001.json` — 包含唯一的 delegate_task tasks 数组
+- `/tmp/dtn_batches/PROMPT.md` — 主 agent 的操作指令
 
 **主 agent 操作流程（零理解成本）:**
 
-1. 读取 `/tmp/dtn_batches/PROMPT.md`
-2. 按提示读取 `001.json`,提取 `tasks` 数组,调用 `delegate_task(tasks=<001.json 的 tasks>)`
-3. 调用完成后,读 `/tmp/dtn_summaries/{id}.json` 逐个验证文件存在且含非空 summary + angle
-4. 若有条目失败,为它单独重新委派一次;仍失败则标记"摘要生成失败"
-5. 重复 2-4 直到 `N/N` 所有批次完成
+1. 读取 `/tmp/dtn_batches/001.json`
+2. 调用 `delegate_task(tasks=<001.json 的 tasks 数组>)`（只有 1 个任务）
+3. 调用完成后，对所有 entry_ids 逐一读取 `/tmp/dtn_summaries/{id}.json` 验证文件存在且含非空 summary + angle
+4. 若有遗漏，为该条单独重新委派一次；仍失败则标记"摘要生成失败"
 
 **验证脚本:**
 ```bash
 /opt/bitnami/python/bin/python3 scripts/verify_summaries.py
 ```
-输出 `ALL OK` 表示全部通过;否则列出缺失/无效的条目 ID。
+输出 `ALL OK` 表示全部通过；否则列出缺失/无效的条目 ID。
+
+> **为什么不用多 batch 并行？** 子 agent 不抓网页，只做总结归类，单任务即可一次性处理所有条目。并行多 batch 只会浪费 token 和增加调度复杂度。
+
+### Step 4b: 过滤子 Agent 标记的不相关/不可用条目
+
+子 Agent 在摘要时会将不相关条目标记为 `"FILTERED: 内容不相关"`,内容残缺无法写摘要的标记为 `"SKIPPED: 已抓内容不可用"`。这些条目都不应进入最终 digest:
+
+```bash
+cd /home/bitnami/daily-tech-news
+/opt/bitnami/python/bin/python3 -c "
+import json, os
+# 加载 digest_raw 的全部条目
+raw = json.load(open('/tmp/dtn_digest_raw.json'))
+entries = raw.get('entries', [])
+kept = []
+filtered = 0
+
+for entry in entries:
+    eid = entry['id']
+    summary_file = f'/tmp/dtn_summaries/{eid}.json'
+    if os.path.exists(summary_file):
+        with open(summary_file) as f:
+            summary_data = json.load(f)
+        # 过滤掉标记为不相关或不可用的条目
+        summary = summary_data.get('summary', '')
+        if summary.startswith('FILTERED:') or summary.startswith('SKIPPED:'):
+            filtered += 1
+            os.remove(summary_file)
+            continue
+    kept.append(entry)
+
+# 重写 digest_raw，只保留通过过滤的条目
+for i, entry in enumerate(kept):
+    entry['id'] = i
+raw['entries'] = kept
+raw['entry_count'] = len(kept)
+with open('/tmp/dtn_digest_raw.json', 'w') as f:
+    json.dump(raw, f, ensure_ascii=False, indent=2)
+print(f'filtered out {filtered} entries, kept {len(kept)}')
+"
+```
+
+注意过滤后需要重新给保留的条目分配连续的 id（从 0 开始），以保证 Step 5 整合时引用正确。
 
 ### Step 5: 整合最终 digest
 
@@ -174,5 +245,5 @@ cd /home/bitnami/daily-tech-news
 3. **始终回读文件验证**子 agent 的产出,不要相信它返回的 summary 字符串。
 4. **个别源/流失败不中止**,降级继续并在 digest 开头注明。
 5. digest 的 `summary` 必须平台中立,平台风格化是下游 skill 的事。
-6. **Step 1-3 的命令在主 session shell 执行**,不用 delegate_task 子 agent 跑。
-7. **子 agent 分批:每批最多 3 个任务**,超过则拆分多轮 delegate_task。
+6. **Step 1-3（含 Step 2b）的命令在主 session shell 执行**,不用 delegate_task 子 agent 跑。
+7. **摘要子 agent 只有 1 个任务，不并行分批**——所有条目打包成单个 task，一次性完成总结归类。

@@ -1,118 +1,80 @@
-# =============================================================================
-# Daily Tech News Skill — 配置文件
-# 所有可调参数集中在此。修改后无需改动任何脚本代码。
-# =============================================================================
-
-# -----------------------------------------------------------------------------
-# 流 1a: RSS 科技新闻源(信源策展,不做热度排序,逐条摘要)
-# -----------------------------------------------------------------------------
-# type 决定用哪个处理器:
-#   "rss"     -> 通用 feedparser(绝大多数标准 feed,加源只需加一行)
-#   "algolia" -> Hacker News 专用 API 处理器
-# 加新的标准 RSS 源:复制一个 type: rss 的条目,改 name + url 即可。
-
-# 全局过滤(每源可单独 override 同名字段):
-#   window_hours -> 只保留 published 落在最近 N 小时内的条目
-#                  (像 OpenAI 这种 dump 全站历史的 feed 必须靠这个砍量)
-#   max_items    -> 时间窗过滤后再硬截断的条数上限
-#                  (防御:某些 feed 不带 published 或时间戳异常时不能让窗口失守)
 rss_defaults:
   window_hours: 48
   max_items: 30
-
 rss_sources:
-  - name: "OpenAI"
-    type: "rss"
-    url: "https://openai.com/news/rss.xml"
-    enabled: true
-
-  - name: "Google Research"
-    type: "rss"
-    url: "https://research.google/blog/rss"
-    enabled: true
-
-  - name: "DeepMind"
-    type: "rss"
-    # 替换原 Meta AI 源(ai.meta.com/blog/rss/ 返回 404,无公开 feed)
-    url: "https://deepmind.google/blog/feed"
-    enabled: true
-
-  - name: "TLDR AI"
-    type: "rss"
-    url: "https://tldr.tech/api/rss/ai"
-    enabled: true
-
-  - name: "Hugging Face"
-    type: "rss"
-    # 替换原 The Rundown AI 源(www.therundown.ai/feed 返回 404,无公开 feed)
-    url: "https://huggingface.co/blog/feed.xml"
-    enabled: true
-
-  - name: "Hacker News"
-    type: "algolia"
-    # HN 走 Algolia Search API,自带 points(热度信号)
-    query: "ai OR agent"
-    points_threshold: 50      # 只保留 points 高于此值的 story
-    max_items: 30
-    enabled: true
-
-# 候选备用源(已确认有 feed,若需替换上面某条可启用)
-# 取消注释即可启用:
-#  - name: "The Decoder"
-#    type: "rss"
-#    url: "https://the-decoder.com/feed/"
-#    enabled: true
-
-# -----------------------------------------------------------------------------
-# 流 1b: X 关注用户(信源策展,抓指定时间窗内的所有推文,不做热度排序)
-# -----------------------------------------------------------------------------
+- name: OpenAI
+  type: rss
+  url: https://openai.com/news/rss.xml
+  enabled: true
+- name: Google Research
+  type: rss
+  url: https://research.google/blog/rss
+  enabled: true
+- name: DeepMind
+  type: rss
+  url: https://deepmind.google/blog/feed
+  enabled: true
+- name: TLDR AI
+  type: rss
+  url: https://tldr.tech/api/rss/ai
+  enabled: true
+- name: Hugging Face
+  type: rss
+  url: https://huggingface.co/blog/feed.xml
+  enabled: true
+- name: Hacker News
+  type: algolia
+  query: ai OR agent
+  points_threshold: 50
+  max_items: 30
+  enabled: true
 following_stream:
-  enabled: true               # 填好 handles 后即可用;handles 为空会自动跳过
-  handles: ["sama", "ylecun"]                 # 你关注的账号用户名(不带@),例: ["sama", "ylecun"]
-  window_hours: 24            # 抓取最近多少小时内的推文(默认24h,可命令行 --window-hours 覆盖)
-  lang: null                  # 限定语言留 null = 不限;如只要英文填 "en"
-  exclude_retweets: false     # true = 过滤转推
-  exclude_replies: false      # true = 过滤回复
-  max_pages: 20               # 分页上限(每页约20条,防止极端情况翻页过多)
-
-# -----------------------------------------------------------------------------
-# 流 2: X 关键词热点发现(热度排序)—— 暂不启用,后续再做
-# -----------------------------------------------------------------------------
+  enabled: true
+  handles:
+  - latepostnews
+  - ai_xiaomu
+  - dashen_wang
+  - LangChain
+  - AnthropicAI
+  - karpathy
+  - snail_9106
+  - Stanleysobest
+  - yidabuilds
+  - wangray
+  - Khazix0918
+  - li9292
+  - oran_ge
+  - yucheng
+  - TJ_Research
+  - LawrenceW_Zen
+  - Franktradinglog
+  window_hours: 24
+  lang: null
+  exclude_retweets: false
+  exclude_replies: false
+  max_pages: 20
 keywords_stream:
-  enabled: false             # 本版本暂不做热度排序,保持关闭
-  keywords: ["ai", "agent"]
+  enabled: false
+  keywords:
+  - ai
+  - agent
   min_faves: 300
   window_hours: 24
-  lang: "en"
+  lang: en
   top_n: 20
   unique_authors_weight: 2.0
   engagement_weight: 1.0
   engagement_norm_base: 1000
-
-# -----------------------------------------------------------------------------
-# TwitterAPI.io 配置(X 抓取)
-# -----------------------------------------------------------------------------
 twitterapi:
-  # token 从环境变量读取,绝不写入此文件:  export TWITTERAPI_KEY=xxx
-  token_env: "TWITTERAPI_KEY"
+  token_env: TWITTERAPI_KEY
   timeout_seconds: 30
-
-# -----------------------------------------------------------------------------
-# 存储 / 输出
-# -----------------------------------------------------------------------------
 storage:
-  db_path: "./data/news.db"          # SQLite,用于去重 + 历史
-  dedup_window_days: 7               # 只跟最近 N 天的历史比对去重
-
+  db_path: ./data/news.db
+  dedup_window_days: 7
 output:
-  digest_dir: "./digests"            # digest 输出目录
-  raw_filename: "digest_raw.json"    # 脚本产出(待摘要)
-  # 最终 digest(digest_final.json / .md)由 SKILL.md 指挥 agent 整合后生成
-
-# -----------------------------------------------------------------------------
-# 摘要(由 SKILL.md 中的 delegate_task 执行,此处仅记录意图供参考)
-# -----------------------------------------------------------------------------
+  digest_dir: ./digests
+  raw_filename: digest_raw.json
 summarize:
-  fetch_fulltext: true       # 子 agent 是否联网抓全文再总结
-  generate_angle: true       # 子 agent 是否一并生成"角度建议"
-  max_concurrent: 3          # delegate_task 并行上限(对应 Hermes 限制)
+  fetch_fulltext: true
+  generate_angle: true
+  max_concurrent: 3

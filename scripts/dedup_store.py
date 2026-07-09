@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS items (
     title          TEXT,
     url            TEXT,
     published      TEXT,
-    summary        TEXT,
+    raw_summary    TEXT,
     author         TEXT,
     metrics        TEXT,           -- JSON blob
     first_seen     TEXT,           -- ISO timestamp we first stored it
@@ -51,6 +51,10 @@ def _migrate(conn):
     cols = {row[1] for row in conn.execute("PRAGMA table_info(items)").fetchall()}
     if "summarized_at" not in cols:
         conn.execute("ALTER TABLE items ADD COLUMN summarized_at TEXT")
+        conn.commit()
+    # 2026-07: rename summary → raw_summary
+    if "summary" in cols and "raw_summary" not in cols:
+        conn.execute("ALTER TABLE items RENAME COLUMN summary TO raw_summary")
         conn.commit()
 
 
@@ -90,12 +94,12 @@ def insert(conn, items):
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     conn.executemany(
         """INSERT OR IGNORE INTO items
-           (dedup_key, source, stream, title, url, published, summary,
+           (dedup_key, source, stream, title, url, published, raw_summary,
             author, metrics, first_seen)
            VALUES (?,?,?,?,?,?,?,?,?,?)""",
         [
             (it["dedup_key"], it["source"], it["stream"], it["title"],
-             it["url"], it.get("published"), it.get("summary", ""),
+             it["url"], it.get("published"), it.get("raw_summary", ""),
              it.get("author"), json.dumps(it.get("metrics", {}),
                                           ensure_ascii=False), now)
             for it in items
@@ -194,6 +198,12 @@ def main():
     p_filter.add_argument("--in", dest="infile", required=True)
     p_filter.add_argument("--out", required=True)
 
+    p_db_pending = sub.add_parser("db-pending",
+                                  help="list ALL uns summarized items directly from DB")
+    p_db_pending.add_argument("--out", required=True, help="write pending items here")
+    p_db_pending.add_argument("--window-days", type=int, default=None,
+                              help="only items first_seen within N days (default: all)")
+
     args = ap.parse_args()
     cfg = load_config(args.config)
 
@@ -211,6 +221,43 @@ def main():
         finally:
             conn.close()
         print(f"mark-summarized: updated {n} of {len(keys)} keys")
+        return
+
+    if args.cmd == "db-pending":
+        conn = connect(resolve_path(cfg["storage"]["db_path"]))
+        try:
+            if args.window_days:
+                cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=args.window_days)).isoformat()
+                rows = conn.execute(
+                    "SELECT dedup_key, source, stream, title, url, published, raw_summary, "
+                    "author, metrics, first_seen FROM items "
+                    "WHERE summarized_at IS NULL AND first_seen >= ? "
+                    "ORDER BY first_seen DESC",
+                    (cutoff,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT dedup_key, source, stream, title, url, published, raw_summary, "
+                    "author, metrics, first_seen FROM items "
+                    "WHERE summarized_at IS NULL "
+                    "ORDER BY first_seen DESC"
+                ).fetchall()
+            
+            items = []
+            for r in rows:
+                items.append({
+                    "dedup_key": r[0], "source": r[1], "stream": r[2],
+                    "title": r[3], "url": r[4], "published": r[5],
+                    "raw_summary": r[6] or "", "author": r[7],
+                    "metrics": json.loads(r[8]) if r[8] else {},
+                    "first_seen": r[9],
+                })
+            
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump({"items": items}, f, ensure_ascii=False, indent=2)
+            print(f"db-pending: {len(items)} uns summarized items written to {args.out}")
+        finally:
+            conn.close()
         return
 
     if args.cmd == "filter-pending":

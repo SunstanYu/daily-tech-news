@@ -21,10 +21,12 @@ import os
 import sys
 import json
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 
 from common import SKILL_DIR
+
+EDT = timezone(timedelta(hours=-4))
 
 
 STREAM_MAP = {
@@ -46,6 +48,10 @@ def safe_yaml_scalar(s):
     # URLs (http/https) are safe unquoted in YAML despite containing ":"
     if s.startswith("http://") or s.startswith("https://"):
         return s
+    # Newlines must be escaped or quoted in YAML scalars
+    if "\n" in s:
+        escaped = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return f'"{escaped}"'
     # Characters that make YAML interpret a value ambiguously
     needs_quote = any(c in s for c in ["#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "'", "\"", "%", "@", "`"])
     # Colon not at position 0 requires quoting
@@ -163,7 +169,7 @@ def build_md(digest):
     return "\n".join(lines) + "\n"
 
 
-def git_push(date_str):
+def git_push(date_str, env=None):
     """Commit and push the new file in the personal-site repo."""
     if not os.path.isdir(os.path.join(PERSONAL_SITE_DIR, ".git")):
         print("warn: personal-site repo not found, skipping git push")
@@ -174,13 +180,13 @@ def git_push(date_str):
     try:
         subprocess.run(
             ["git", "add", f"src/content/news/{date_str}.md"],
-            cwd=PERSONAL_SITE_DIR, capture_output=True, check=True
+            cwd=PERSONAL_SITE_DIR, capture_output=True, check=True, env=env
         )
         
         # Check if there's actually something to commit
         status = subprocess.run(
             ["git", "diff", "--cached", "--quiet"],
-            cwd=PERSONAL_SITE_DIR, capture_output=True
+            cwd=PERSONAL_SITE_DIR, capture_output=True, env=env
         )
         if status.returncode == 0:
             print("info: no new git changes to commit")
@@ -189,12 +195,12 @@ def git_push(date_str):
         commit_msg = f"每日新闻: {date_str}"
         subprocess.run(
             ["git", "commit", "-m", commit_msg],
-            cwd=PERSONAL_SITE_DIR, capture_output=True, check=True, text=True
+            cwd=PERSONAL_SITE_DIR, capture_output=True, check=True, text=True, env=env
         )
         
         push_result = subprocess.run(
             ["git", "push", "origin", "main"],
-            cwd=PERSONAL_SITE_DIR, capture_output=True, text=True
+            cwd=PERSONAL_SITE_DIR, capture_output=True, text=True, env=env
         )
         
         if push_result.returncode != 0:
@@ -232,6 +238,19 @@ def main():
         digest = json.load(f)
 
     date_str = digest["date"]
+
+    # Safety net: if digest date differs from today's EDT date, fix it.
+    # This happens when digest_final.json is stale (build_digest.py was skipped
+    # or re-used from a previous run). The user should always see today's date.
+    edt_today = datetime.now(EDT).strftime("%Y-%m-%d")
+    if date_str != edt_today:
+        print(f"warn: digest date '{date_str}' != today EDT '{edt_today}', forcing to today")
+        digest["date"] = edt_today
+        date_str = edt_today
+        # Rewrite the corrected digest so downstream scripts see the right date
+        with open(digest_path, "w", encoding="utf-8") as f:
+            json.dump(digest, f, ensure_ascii=False, indent=2)
+
     md_content = build_md(digest)
 
     # Ensure news dir exists
@@ -251,7 +270,12 @@ def main():
     
     # Git push
     if not args.skip_git:
-        commit_msg = git_push(date_str)
+        # Prevent ANY interactive git prompts (password, username, etc.)
+        # In cron/non-interactive context, a prompt = hang forever.
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = "/bin/true"  # always fail if asked for password
+        commit_msg = git_push(date_str, env)
         if commit_msg:
             print(f"git: committed & pushed ({commit_msg})")
 

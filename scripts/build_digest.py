@@ -32,7 +32,7 @@ def curated_entries(items):
             "source": it["source"],
             "stream": it["stream"],
             "published": it.get("published"),
-            "raw_summary": it.get("summary", ""),
+            "raw_summary": it.get("raw_summary", ""),
             "author": it.get("author"),
             # filled by agent layer:
             "summary": None,
@@ -53,7 +53,7 @@ def hot_entries(topics):
             "source": "X (hot topic)",
             "stream": "keywords",
             "topic_signal": t["topic_signal"],
-            "raw_summary": rep["summary"],
+            "raw_summary": rep.get("raw_summary", ""),
             "author": rep.get("author"),
             "hotness": {
                 "unique_authors": t["unique_authors"],
@@ -90,9 +90,10 @@ def build(cfg, curated_items, ranked_topics, reports=None):
                     notes.append("注: X following 流在时间窗内无推文")
                 # keyword stream with 0 items is normal when disabled
 
+    edt = dt.timezone(dt.timedelta(hours=-4))
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "date": dt.date.today().isoformat(),
+        "date": dt.datetime.now(edt).strftime("%Y-%m-%d"),
         "entry_count": len(entries),
         "notes": notes,
         "entries": entries,

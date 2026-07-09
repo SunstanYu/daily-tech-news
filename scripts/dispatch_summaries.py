@@ -1,47 +1,23 @@
 """
-dispatch_summaries.py — 为 daily-tech-news 生成精确的子 agent 任务批次。
+dispatch_summaries.py — 为 daily-tech-news 生成唯一的子 agent 任务。
 
-读取 digest_raw.json，为每条 entry 生成完整的 delegate_task task 参数。
-按 batch_size 分批输出，每批一个 JSON 文件。
+读取 digest_raw.json，将所有条目打包成单个 sub-agent 任务。
+子 agent 只需要**总结归类**（raw_summary 已由上游抓取脚本提供，不需要再抓网页），
+一次性对所有条目做可用性检查、相关性过滤、摘要、归类，结果写入 /tmp/dtn_summaries/。
 
 主 agent 不需要"理解"任何逻辑——只需要：
 1. 读取 batches/001.json（包含精确的 delegate_task(tasks=[...]) 参数）
 2. 调用 delegate_task(tasks=...)
-3. 读取 batches/002.json（如果存在）
-4. 重复，直到所有批次处理完
-5. 运行 verify_summaries.py 验证输出
+3. 完成后运行 verify_summaries.py 验证输出
 """
 import json
 import os
 import sys
-from pathlib import Path
 
 BATCH_DIR = "/tmp/dtn_batches"
 SUMMARY_DIR = "/tmp/dtn_summaries"
 
 ANGELS = ["教程", "观点解读", "工具评测", "事件分析", "趋势洞察"]
-
-SUBAGENT_CONTEXT_TEMPLATE = """文件路径: /tmp/dtn_digest_raw.json
-目标条目: entries[{id}]
-该条目字段:
-  - url: {url}
-  - title: {title}
-  - source: {source}
-  - stream: {stream}
-  - raw_summary: {raw_summary}
-
-任务:
-1. 若 url 有效且可访问,用 web 工具抓取原文全文;若抓不到或 url 为空,基于 raw_summary。
-2. 写一段 2-4 句的中文摘要,客观说明这条新闻/讨论是什么、为什么值得注意。
-   摘要必须平台中立(不要写成小红书/公众号风格,只是事实性总结)。
-3. 给一个角度建议,从这些里选最合适的一个:
-   {angles}
-4. 用 Python 的 json.dump 将结果写入 {summary_file}。**不要手写 JSON 字符串**,用以下方式确保转义正确:
-   import json
-   result = {{"id": {id}, "summary": "你的摘要", "angle": "你选的角度", "fetched_fulltext": true或false}}
-   with open("{summary_file}", "w", encoding="utf-8") as f:
-       json.dump(result, f, ensure_ascii=False, indent=2)
-只输出这个文件,不要做别的。"""
 
 
 def load_digest(path):
@@ -50,38 +26,7 @@ def load_digest(path):
     return data.get("entries", [])
 
 
-def make_subagent_task(entry, batch_size=3):
-    """生成单个 sub-agent task 参数（精确 JSON，零歧义）"""
-    eid = entry["id"]
-    title = entry.get("title", "")
-    url = entry.get("url", "")
-    source = entry.get("source", "")
-    stream = entry.get("stream", "")
-    raw_summary = entry.get("raw_summary", "")
-
-    if len(raw_summary) > 300:
-        raw_summary = raw_summary[:300] + "..."
-
-    context = SUBAGENT_CONTEXT_TEMPLATE.format(
-        id=eid,
-        url=url,
-        title=title,
-        source=source,
-        stream=stream,
-        raw_summary=raw_summary,
-        angles=" | ".join(ANGELS),
-        summary_file=f"{SUMMARY_DIR}/{eid}.json",
-    )
-
-    return {
-        "goal": f"读取 /tmp/dtn_digest_raw.json 第 {eid} 条(entries[{eid}]),为它写一段中文摘要和内容角度建议,结果写入 {SUMMARY_DIR}/{eid}.json",
-        "context": context,
-        "toolsets": ["terminal", "file", "web"],
-        "role": "leaf",
-    }
-
-
-def generate_batches(digest_path, batch_size=3):
+def generate_single_task(digest_path):
     entries = load_digest(digest_path)
 
     if not entries:
@@ -90,76 +35,113 @@ def generate_batches(digest_path, batch_size=3):
         print("Skip Step 4 — tell user '今日无新条目' and go straight to Step 6.")
         sys.exit(1)
 
+    # 构建条目列表文本（截断过长的 raw_summary）
+    entries_text_lines = []
+    for e in entries:
+        eid = e["id"]
+        title = e.get("title", "")
+        source = e.get("source", "")
+        stream = e.get("stream", "")
+        url = e.get("url", "")
+        raw = e.get("raw_summary", "") or ""
+        if len(raw) > 400:
+            raw = raw[:400] + "..."
+        entries_text_lines.append(f"--- entry [{eid}] ---")
+        entries_text_lines.append(f"  source: {source}")
+        entries_text_lines.append(f"  stream: {stream}")
+        entries_text_lines.append(f"  url: {url}")
+        entries_text_lines.append(f"  title: {title}")
+        entries_text_lines.append(f"  raw_summary: {raw}")
+
+    entries_block = "\n".join(entries_text_lines)
+
+    context = f"""读取文件 /tmp/dtn_digest_raw.json，包含 {len(entries)} 条新闻条目。
+每条条目字段：id、title、url、source、stream、raw_summary。
+raw_summary 是上游抓取脚本已获取的内容（RSS description 或推文原文），你只需要基于它工作。
+
+所有条目列表：
+
+{entries_block}
+
+--- 以下是对每一条条目要执行的操作 ---
+
+1. **内容可用性检查**：如果 raw_summary 为空、仅含无关符号、或内容太短/残缺（如只有标题或截断的一句话）导致无法写出有意义的摘要，将该条目标记为 \"SKIPPED\"。
+
+2. **内容相关性判断**：
+   - 保留：投资/融资/赚钱、AI/大模型/技术讨论、科技公司/行业动态、带转发评论的quote tweet（作者写了推荐/转发原因）
+   - 剔除：生活分享、心情吐槽、日常闲聊、搞笑段子
+   - 宁多勿漏：混合信号（生活+科技）保留，不确定时保留
+   - 将判定为不相关的条目标记为 \"FILTERED\"。
+
+3. **写摘要**：对保留的条目，写一段 2-4 句的中文摘要，客观说明这条新闻/讨论是什么、为什么值得注意。摘要必须平台中立（不要写成小红书/公众号风格，只是事实性总结）。
+
+4. **给角度**：为每条保留的条目从这些里选最合适的一个：教程 | 观点解读 | 工具评测 | 事件分析 | 趋势洞察
+
+5. **写结果文件**：对每一条条目（无论保留/跳过/过滤），用 Python 的 json.dump 写入 /tmp/dtn_summaries/{{id}}.json：
+   - 正常条目：id={id}, summary=\"你的摘要\", angle=\"你选的角度\"
+   - 跳过的条目：id={id}, summary=\"SKIPPED: 已抓内容不可用\", angle=\"无\"
+   - 过滤的条目：id={id}, summary=\"FILTERED: 内容不相关\", angle=\"无\"
+   不要手写 JSON 字符串，确保转义正确。示例：
+       import json
+       result = {{"id": {id}, "summary": "...", "angle": "..."}}
+       with open(f"/tmp/dtn_summaries/{{id}}.json", "w", encoding="utf-8") as f:
+           json.dump(result, f, ensure_ascii=False, indent=2)
+
+**重要：逐条处理，对所有 {len(entries)} 条都输出对应的 summary 文件。不要遗漏任何一条。**"""
+
+    task = {
+        "goal": f"读取 /tmp/dtn_digest_raw.json 全部 {len(entries)} 条条目，逐条进行内容检查、相关性过滤、中文摘要和角度归类，将每条结果写入 /tmp/dtn_summaries/{{id}}.json",
+        "context": context,
+        "toolsets": ["file"],
+        "role": "leaf",
+        "model": {"provider": "openrouter", "model": "minimax/minimax-m2.5"},
+    }
+
     os.makedirs(BATCH_DIR, exist_ok=True)
     os.makedirs(SUMMARY_DIR, exist_ok=True)
 
-    total = len(entries)
-    batches = []
+    batch_info = {
+        "batch_number": 1,
+        "total_batches": 1,
+        "tasks_in_this_batch": 1,
+        "entry_ids": [e["id"] for e in entries],
+        "instruction": (
+            f"这是唯一的 1/1 批。"
+            f"请调用 delegate_task(tasks=tasks)，其中 tasks 是下面的数组（只有 1 个任务）。"
+            f"调用完成后，读取 /tmp/dtn_summaries/{{id}}.json 验证每个文件存在且含非空 summary + angle。"
+            f"若有遗漏，为该条单独重新委派一次；仍失败则标记'摘要生成失败'。"
+        ),
+        "tasks": [task],
+    }
 
-    for i in range(0, total, batch_size):
-        batch_entries = entries[i : i + batch_size]
-        batch_num = i // batch_size + 1
-        tasks = [make_subagent_task(e) for e in batch_entries]
-
-        batch_info = {
-            "batch_number": batch_num,
-            "total_batches": (total + batch_size - 1) // batch_size,
-            "tasks_in_this_batch": len(tasks),
-            "entry_ids": [e["id"] for e in batch_entries],
-            "instruction": f"这是第 {batch_num}/{(total + batch_size - 1) // batch_size} 批。"
-            f"请调用 delegate_task(tasks=tasks),其中 tasks 是下面的数组。"
-            f"调用完成后,读取 /tmp/dtn_summaries/{{id}}.json 验证每个文件存在且含非空 summary + angle。"
-            f"若某条失败,重新委派该条一次;仍失败则标记'摘要生成失败'。",
-            "tasks": tasks,
-        }
-
-        batch_path = os.path.join(BATCH_DIR, f"{batch_num:03d}.json")
-        with open(batch_path, "w", encoding="utf-8") as f:
-            json.dump(batch_info, f, ensure_ascii=False, indent=2)
-
-        batches.append(batch_info)
-
-    # 生成 dispatcher prompt
-    prompt_parts = []
-    prompt_parts.append(f"# 摘要子 agent 派发指令")
-    prompt_parts.append(f"")
-    prompt_parts.append(f"digest 共有 {total} 条待摘要条目。")
-    prompt_parts.append(f"已分批到 {BATCH_DIR}/,每批最多 {batch_size} 个任务。")
-    prompt_parts.append(f"请按顺序处理:")
-    prompt_parts.append(f"")
-
-    for b in batches:
-        prompt_parts.append(f"## 第 {b['batch_number']}/{b['total_batches']} 批 (条目 {b['entry_ids']})")
-        prompt_parts.append(f"读取 {BATCH_DIR}/{b['batch_number']:03d}.json")
-        prompt_parts.append(f"调用: delegate_task(tasks=<该文件中的 tasks 数组>)")
-        prompt_parts.append(f"完成后对 entry_ids={b['entry_ids']} 中的每个 id:")
-        prompt_parts.append(f"  read_file /tmp/dtn_summaries/{{id}}.json")
-        prompt_parts.append(f"  验证: 文件存在,含非空 summary 和 angle")
-        prompt_parts.append(f"  若失败: 重新单独委派该条一次;仍失败则标记'摘要生成失败'")
-        prompt_parts.append(f"")
-
-    prompt_parts.append(
-        f"所有批次完成后:\n"
-        f"1. 运行: python3 scripts/dedup_store.py mark-summarized "
-        f"--keys-file digests/digest_final.json\n"
-        f"2. 整合 /tmp/dtn_summaries/*.json 到 digest_final.json 和 digest_final.md\n"
-        f"3. 把 digest_final.md 内容呈现给用户"
-    )
+    batch_path = os.path.join(BATCH_DIR, "001.json")
+    with open(batch_path, "w", encoding="utf-8") as f:
+        json.dump(batch_info, f, ensure_ascii=False, indent=2)
 
     prompt_path = os.path.join(BATCH_DIR, "PROMPT.md")
     with open(prompt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(prompt_parts))
+        f.write(f"# 摘要子 agent 派发指令\n\n")
+        f.write(f"digest 共有 {len(entries)} 条待摘要条目，已合并为 1 个 sub-agent 任务。\n\n")
+        f.write(f"## 操作步骤\n\n")
+        f.write(f"读取 {BATCH_DIR}/001.json\n")
+        f.write(f"调用: delegate_task(tasks=<该文件中的 tasks 数组>)\n")
+        f.write(f"完成后，对以下 {len(entries)} 个 entry_ids 逐一验证：\n")
+        f.write(f"  entry_ids={batch_info['entry_ids']}\n")
+        f.write(f"对每个 id：\n")
+        f.write(f"  read_file /tmp/dtn_summaries/{{id}}.json\n")
+        f.write(f"  验证：文件存在，含非空 summary 和 angle\n")
+        f.write(f"  若遗漏：重新单独委派该条一次；仍失败则标记'摘要生成失败'\n\n")
+        f.write(f"所有条目验证完成后：\n")
+        f.write(f"进入 Step 4b（过滤不相关条目）→ Step 5（整合 digest）→ Step 7（呈现给用户）\n")
 
-    print(f"dispatch: {len(entries)} entries → {len(batches)} batches")
-    print(f"批处理文件: {BATCH_DIR}/001.json ~ {BATCH_DIR}/{len(batches):03d}.json")
-    print(f"派发提示:  {BATCH_DIR}/PROMPT.md")
+    print(f"dispatch: {len(entries)} entries → 1 sub-agent task")
+    print(f"批处理文件: {batch_path}")
+    print(f"派发提示:  {prompt_path}")
     print(f"摘要输出:  {SUMMARY_DIR}/")
-    print(f"")
-    print("主 agent 操作指南:")
-    print("1. 读取 PROMPT.md 或 001.json")
-    print("2. 按 prompt 指示调用 delegate_task")
-    print("3. 每批完成后验证 /tmp/dtn_summaries/*.json")
-    print("4. 重复直到所有批次完成")
+    print(f"\n主 agent 操作指南:")
+    print(f"1. 读取 {batch_path}")
+    print(f"2. 调用 delegate_task(tasks=<该文件的 tasks 数组>)")
+    print(f"3. 完成后验证 /tmp/dtn_summaries/*.json")
 
 
 if __name__ == "__main__":
@@ -169,9 +151,6 @@ if __name__ == "__main__":
     ap.add_argument(
         "--digest", default="/tmp/dtn_digest_raw.json", help="digest_raw.json 路径"
     )
-    ap.add_argument(
-        "--batch-size", type=int, default=3, help="每批 sub-agent 数量 (默认 3)"
-    )
     args = ap.parse_args()
 
-    generate_batches(args.digest, args.batch_size)
+    generate_single_task(args.digest)

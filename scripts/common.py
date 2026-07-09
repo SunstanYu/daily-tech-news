@@ -103,7 +103,7 @@ def make_item(
         "title": title,
         "url": url,
         "published": published,
-        "summary": strip_html(summary),
+        "raw_summary": strip_html(summary),
         "author": author,
         "metrics": metrics or {},
     }
