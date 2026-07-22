@@ -35,7 +35,7 @@ def curated_entries(items):
             "source": it["source"],
             "stream": it["stream"],
             "published": it.get("published"),
-            "raw_summary": it.get("summary", ""),
+            "raw_summary": it.get("raw_summary", ""),
             "author": it.get("author"),
             # filled by agent layer:
             "summary": None,
@@ -56,7 +56,7 @@ def hot_entries(topics):
             "source": "X (hot topic)",
             "stream": "keywords",
             "topic_signal": t["topic_signal"],
-            "raw_summary": rep["summary"],
+            "raw_summary": rep.get("raw_summary", ""),
             "author": rep.get("author"),
             "hotness": {
                 "unique_authors": t["unique_authors"],
@@ -71,7 +71,8 @@ def hot_entries(topics):
     return out
 
 
-def build(cfg, curated_items, ranked_topics):
+def build(cfg, curated_items, ranked_topics, reports=None):
+    """Build digest. reports can be [{'stream': str, 'ok': bool, 'error': str, ...}]."""
     entries = []
     entries.extend(hot_entries(ranked_topics))      # hot topics first
     entries.extend(curated_entries(curated_items))  # then curated sources
@@ -80,10 +81,23 @@ def build(cfg, curated_items, ranked_topics):
     for i, e in enumerate(entries):
         e["id"] = i
 
+    # Collect failure notes from reports for Step 6 display
+    notes = []
+    if reports:
+        for r in reports:
+            stream = r.get("stream") or r.get("source", "?")
+            if not r.get("ok", True):
+                notes.append(f"注: {stream} 本次未抓取成功 ({r.get('error', 'unknown')})")
+            elif r.get("item_count", r.get("count", 0)) == 0 and r.get("ok"):
+                if "following" in stream.lower():
+                    notes.append("注: X following 流在时间窗内无推文")
+                # keyword stream with 0 items is normal when disabled
+
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "date": dt.datetime.now(LOCAL_TZ).date().isoformat(),
         "entry_count": len(entries),
+        "notes": notes,
         "entries": entries,
     }
 
@@ -95,6 +109,8 @@ def main():
                     help="JSON {'items':[...]} of RSS+following (post-dedup)")
     ap.add_argument("--topics", required=True,
                     help="JSON {'topics':[...]} from rank.py")
+    ap.add_argument("--reports", default=None,
+                    help="Comma-separated JSON files with fetch reports")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -104,7 +120,15 @@ def main():
     with open(args.topics, "r", encoding="utf-8") as f:
         topics = json.load(f).get("topics", [])
 
-    digest = build(cfg, curated, topics)
+    reports = []
+    if args.reports:
+        for path in args.reports.split(","):
+            path = path.strip()
+            if path and os.path.exists(path):
+                data = json.load(open(path, "r", encoding="utf-8"))
+                reports.extend(data.get("report", []))
+
+    digest = build(cfg, curated, topics, reports=reports)
 
     out = args.out or os.path.join(
         resolve_path(cfg["output"]["digest_dir"]),
@@ -114,6 +138,9 @@ def main():
     with open(out, "w", encoding="utf-8") as f:
         json.dump(digest, f, ensure_ascii=False, indent=2)
     print(f"digest: {digest['entry_count']} entries -> {out}")
+    if notes := digest.get("notes"):
+        for n in notes:
+            print(f"  {n}")
 
 
 if __name__ == "__main__":

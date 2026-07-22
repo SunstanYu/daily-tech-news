@@ -14,6 +14,36 @@ SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 DEFAULT_CONFIG_PATH = os.path.join(SKILL_DIR, "config.yaml")
 
 
+def load_global_env():
+    """Load global env from ~/.hermes/env (non-interactive shell compatible).
+    
+    Parses simple KEY=VALUE lines and sets them in os.environ.
+    Skips lines that are already set (allow project .env to override).
+    """
+    env_path = os.path.expanduser("~/.hermes/env")
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line)
+            if match:
+                key, value = match.group(1), match.group(2).strip()
+                if key not in os.environ:
+                    # Strip surrounding quotes if present
+                    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+                        value = value[1:-1]
+                    elif len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+                        value = value[1:-1]
+                    os.environ.setdefault(key, value)
+
+
+# Load global env on import — all scripts that import common.py get access.
+load_global_env()
+
+
 def load_config(path=None):
     """Load the central config. All tunables live here."""
     path = path or DEFAULT_CONFIG_PATH
@@ -73,7 +103,7 @@ def make_item(
         "title": title,
         "url": url,
         "published": published,
-        "summary": strip_html(summary),
+        "raw_summary": strip_html(summary),
         "author": author,
         "metrics": metrics or {},
     }
