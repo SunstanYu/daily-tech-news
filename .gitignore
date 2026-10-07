@@ -7,3 +7,4 @@ digests/*.json
 digests/*.md
 /tmp/dtn_*
 .env
+.claude/handoffs/

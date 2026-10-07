@@ -15,8 +15,11 @@ import os
 import json
 import argparse
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 from common import load_config, resolve_path
+
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 
 def curated_entries(items):
@@ -90,10 +93,9 @@ def build(cfg, curated_items, ranked_topics, reports=None):
                     notes.append("注: X following 流在时间窗内无推文")
                 # keyword stream with 0 items is normal when disabled
 
-    edt = dt.timezone(dt.timedelta(hours=-4))
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "date": dt.datetime.now(edt).strftime("%Y-%m-%d"),
+        "date": dt.datetime.now(LOCAL_TZ).date().isoformat(),
         "entry_count": len(entries),
         "notes": notes,
         "entries": entries,
