@@ -78,3 +78,12 @@ summarize:
   fetch_fulltext: true
   generate_angle: true
   max_concurrent: 3
+cac_filings:
+  enabled: true
+  # 网信办「生成式人工智能服务已备案信息」公告页。注意:这是**一个固定 URL**,
+  # 网信办在同一页上不断追加附件(附件1=2024年4月起,约每 2 个月一期),
+  # 所以判新是比对附件列表,不是比对文章列表。
+  url: https://www.cac.gov.cn/2024-04/02/c_1713729983803145.htm
+  state_path: ./data/cac_seen.json
+  pdf_dir: ./data/cac_pdf
+  timeout_seconds: 60

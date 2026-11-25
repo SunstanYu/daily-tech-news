@@ -7,3 +7,5 @@ digests/*.json
 digests/*.md
 /tmp/dtn_*
 .env
+data/cac_pdf/
+digests/cac/

@@ -4,8 +4,9 @@ description: >
   每日科技新闻采集与摘要。抓取 RSS 科技源(OpenAI/Google/Meta/HN 等)+ X 关注用户
   + X 关键词热点,去重、按热度排序,然后为每条生成摘要和"内容角度建议",产出一份
   带编号的 digest 供用户挑选。当用户说"抓今天的新闻""今日科技热点""跑一下新闻摘要"
-  等类似请求时使用本 skill。
-version: 2.1.0
+  等类似请求时使用本 skill。另含网信办生成式 AI 备案名单的监控与解读(Step 0.5,
+  最高优先级,独立于新闻流程)。
+version: 2.2.0
 ---
 
 # Daily Tech News Skill
@@ -32,6 +33,74 @@ version: 2.1.0
 # X API（可选，缺失时 X 流降级）
 echo $([ -n "$TWITTERAPI_KEY" ] && echo "TWITTERAPI_KEY=SET" || echo "X fetch=SKIPPED")
 ```
+
+### Step 0.5: CAC 备案名单（**最高优先级**，独立于主流程）
+
+网信办「生成式人工智能服务已备案信息」名单，每出一期就单独做一篇解读。
+**这一步排在所有抓取之前**，而且**不走 Step 3-5 的去重/摘要流水线** —— 它不是一条新闻，
+是一份名单，产出的是独立文章，不是 digest 条目。
+
+> 为什么是一个固定 URL:网信办不每期发新网页,而是在同一个公告页上**不断追加附件**
+> (附件1 = 2024年4月,至今 14 期,约每 2 个月一期)。所以判新 = 比对附件列表。
+
+```bash
+cd /home/bitnami/daily-tech-news
+# 首次在一台新机器上跑,先把现有附件标成已见,否则 14 期历史会被全当成新的:
+#   /opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py seed
+/opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py check --out /tmp/cac_check.json
+```
+
+**`has_new` 为 false（绝大多数天都是）**：一行带过，直接进 Step 1，不要在 digest 里提它。
+
+**`has_new` 为 true**：解析新一期，然后写文章。
+
+```bash
+/opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py extract --new --out /tmp/cac_new.json
+```
+
+输出里 `batches[0].sections` 按表分好：`备案` / `端侧备案` / `拟人化备案` / `登记` / `变更`，
+每行含 `no / province / model / unit / filing_no / filed_at`。
+`batches[0].stats` 是确定性统计（条数、单位数、属地分布、序号范围）。
+
+> **先看 stats 里的自检字段再往下走**：`missing_nos` 非空说明有行没解析出来，
+> `_dropped` 是整行失败的，`unit_unparsed` 是单位名没切干净的。
+> 序号是连续的，所以缺号就是漏数据 —— 网信办换 PDF 排版时会在这里暴露，
+> 不要无视它直接写文章，**少一行就是少一家公司**。
+
+#### 文章要求（agent 写，不走摘要子流程）
+
+正文写成 Markdown 存到 `/tmp/cac_article.md`，只讲一件事：**这批拿到备案的都是什么公司**。
+
+1. **全量统计**（覆盖全部单位，不抽样）：按赛道归类（如金融、医疗、工业、政务、教育、
+   内容创作、客服、法律…）给出分布；按属地给出分布；备案与登记分开统计，不要混成一个数。
+   统计口径用 `stats` 里的数字，不要自己数。
+2. **重点详介 30–50 家**：每家一小段话 —— 这家公司是做什么的、这次备案的模型/服务用在哪，
+   并留**官网 URL**。挑选标准：知名公司 + 每个赛道的典型代表 + 有辨识度的新面孔。
+3. 官网查不到就写「未找到公开官网」，**不要编 URL**。单位名带「（个体工商户）」「工作室」
+   这类的通常没有官网，跳过即可。
+4. 不要逐条复述表格；表格本身在 PDF 里，文章的价值是分类和解读。
+
+```bash
+/opt/bitnami/python/bin/python3 scripts/export_cac_article.py --batch /tmp/cac_new.json --body /tmp/cac_article.md
+```
+
+该脚本拼好 frontmatter（personal-site 的 `writing` 集合 schema）写进
+`~/personal-site/src/content/writing/cac-genai-filings-YYYY-MM.md` 并 git push，
+同时在本仓库 `digests/cac/` 留一份副本。统计数字由脚本从 extract 产物里取，不用手敲。
+
+确认发布成功后，记下这一期已处理，下次不再重复触发：
+
+```bash
+/opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py mark-seen --from /tmp/cac_new.json
+```
+
+#### 在 digest 里的位置
+
+`digest_final.md` **最前面**单独成节（在所有新闻条目之前），`digest_final.json` 加顶层字段
+`cac_filing`（`{period, counts, article_url, article_path}`）。这一节只放三行：
+这期是哪个月、各表多少条多少家单位、文章链接。**正文不塞进 digest**，文章体量太大。
+
+Step 7 汇报时在状态行后面补一句：`📋 CAC 备案名单更新（YYYY年M月，N 家单位），已发解读。`
 
 ### Step 1: 抓取 RSS + Hacker News（确定性脚本）
 
@@ -252,3 +321,6 @@ cd /home/bitnami/daily-tech-news
 5. digest 的 `summary` 必须平台中立,平台风格化是下游 skill 的事。
 6. **Step 1-3（含 Step 2b）的命令在主 session shell 执行**,不用 delegate_task 子 agent 跑。
 7. **摘要子 agent 只有 1 个任务，不并行分批**——所有条目打包成单个 task，一次性完成总结归类。
+8. **Step 0.5 的 CAC 名单不进新闻流水线**——它不入 dedup_store、不派摘要子 agent、
+   不占 digest 条目编号。它产出的是一篇独立文章,digest 里只留三行摘要 + 链接。
+   名单没更新的日子(绝大多数)这一步就是一个 HTTP 请求,一行带过。
