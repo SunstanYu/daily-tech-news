@@ -66,7 +66,7 @@ UNIT_SUFFIX = (r"(?:公司|工作室|事务所|研究院|研究所|设计院|出
                r"图书馆|博物馆|美术馆|档案馆|科学技术馆|馆|"
                r"电视台|广播电台|台|管理局|数据局|局|委员会|协会|学会|基金会|"
                r"总站|电厂|工厂|厂|社|队|园|站)")
-UNIT_TAIL_RE = re.compile(UNIT_SUFFIX + r"(?:（[^）]*）|\([^)]*\))?$")
+UNIT_TAIL_RE = re.compile(r"(?:集团|股份|有限|责任)*" + UNIT_SUFFIX + r"(?:（[^）]*）|\([^)]*\))?$")
 
 
 # ---------------------------------------------------------------- 公告页
@@ -282,7 +282,11 @@ def _row_fields(no, blob):
     unit, model, parsed = None, None, False
     for take in range(1, len(tokens) + 1):
         cand = "".join(tokens[-take:])
-        if UNIT_TAIL_RE.search(cand) and not cand.startswith(("（", "(")):
+        # 削掉机构后缀后还得剩下名字 ——「有限公司」削完是空的,它不是一家公司;
+        # 也不能以左括号开头(「（上海）有限公司」是被 PDF 切开的后半截)
+        if not UNIT_TAIL_RE.search(cand) or cand.startswith(("（", "(")):
+            continue
+        if len(UNIT_TAIL_RE.sub("", cand)) >= 2:
             unit = cand
             model = "".join(tokens[:-take]).strip() or None
             parsed = True
