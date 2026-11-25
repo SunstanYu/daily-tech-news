@@ -1,0 +1,59 @@
+<svg viewBox="0 0 700 512" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif">
+<style>
+  svg {
+    --bg: #F4F7FB; --ink: #1F2933; --ink-muted: #6B7A8C;
+    --primary: #3B6FB6; --neutral: #B4C2D2;
+    --warn: #C0563E; --pos: #3F8F7B; --line: #D3DEEA;
+  }
+  @media (prefers-color-scheme: dark) {
+    svg {
+      --bg: #161B22; --ink: #E4EAF2; --ink-muted: #8494A6;
+      --primary: #6BA3E8; --neutral: #3E4C5C;
+      --warn: #E0785C; --pos: #5FB9A2; --line: #2A333F;
+    }
+  }
+  .cap { font-size: 13px; fill: var(--ink-muted); }
+  .lbl { font-size: 14px; fill: var(--ink); text-anchor: end; }
+  .val { font-size: 14px; font-weight: 600; fill: var(--ink); }
+</style>
+<rect x="0" y="0" width="700" height="512" rx="10" fill="var(--bg)"/>
+<text class="cap" x="24" y="30">赛道分布（条）：按模型名和公司主业人工归类</text>
+<line x1="190" y1="48" x2="190" y2="464" stroke="var(--line)" stroke-width="1"/>
+<text class="lbl" x="176" y="74" style="fill:var(--primary);font-weight:600">云与基础设施</text>
+<rect x="190" y="59" width="195" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="394" y="74" style="fill:var(--primary)">42</text>
+<text class="lbl" x="176" y="108" style="fill:var(--primary);font-weight:600">内容创作与媒体</text>
+<rect x="190" y="93" width="157" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="356" y="108" style="fill:var(--primary)">34</text>
+<text class="lbl" x="176" y="142" style="fill:var(--primary);font-weight:600">政务与公共服务</text>
+<rect x="190" y="127" width="153" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="352" y="142" style="fill:var(--primary)">33</text>
+<text class="lbl" x="176" y="176">教育与科研</text>
+<rect x="190" y="161" width="125" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="324" y="176">27</text>
+<text class="lbl" x="176" y="210">工业与制造</text>
+<rect x="190" y="195" width="107" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="306" y="210">23</text>
+<text class="lbl" x="176" y="244">终端与硬件</text>
+<rect x="190" y="229" width="102" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="301" y="244">22</text>
+<text class="lbl" x="176" y="278">交通与出行</text>
+<rect x="190" y="263" width="79" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="278" y="278">17</text>
+<text class="lbl" x="176" y="312">客服与营销、电商</text>
+<rect x="190" y="297" width="79" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="278" y="312">17</text>
+<text class="lbl" x="176" y="346">金融</text>
+<rect x="190" y="331" width="79" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="278" y="346">17</text>
+<text class="lbl" x="176" y="380">办公与企业服务</text>
+<rect x="190" y="365" width="74" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="273" y="380">16</text>
+<text class="lbl" x="176" y="414">医疗健康</text>
+<rect x="190" y="399" width="65" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="264" y="414">14</text>
+<text class="lbl" x="176" y="448" style="fill:var(--warn);font-weight:600">看不出在做什么</text>
+<rect x="190" y="433" width="440" height="18" rx="3" fill="var(--warn)"/>
+<text class="val" x="639" y="448" style="fill:var(--warn)">95</text>
+<text class="cap" x="24" y="498" font-size="11.5">归类覆盖 262 条；剩下 95 条（约 27%）只有模型名和单位名，判断不出业务方向</text>
+</svg>

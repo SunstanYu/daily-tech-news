@@ -87,3 +87,7 @@ cac_filings:
   state_path: ./data/cac_seen.json
   pdf_dir: ./data/cac_pdf
   timeout_seconds: 60
+  # 精选新闻网站的本地路径。解读文章发这里,不发 personal-site。
+  # 服务器上没有这个仓库 —— 那边只把 run 目录提交到 digests/cac/,
+  # 到 Mac 上再导入和定价发布。找不到路径不是错,脚本会提示下一步命令。
+  curated_site_dir: ~/code/curated-news-site

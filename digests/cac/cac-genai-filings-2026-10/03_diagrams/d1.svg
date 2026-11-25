@@ -1,0 +1,51 @@
+<svg viewBox="0 0 700 312" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif">
+<style>
+  svg {
+    --bg: #F4F7FB; --ink: #1F2933; --ink-muted: #6B7A8C;
+    --primary: #3B6FB6; --neutral: #B4C2D2;
+    --warn: #C0563E; --pos: #3F8F7B; --line: #D3DEEA;
+  }
+  @media (prefers-color-scheme: dark) {
+    svg {
+      --bg: #161B22; --ink: #E4EAF2; --ink-muted: #8494A6;
+      --primary: #6BA3E8; --neutral: #3E4C5C;
+      --warn: #E0785C; --pos: #5FB9A2; --line: #2A333F;
+    }
+  }
+  .cap { font-size: 13px; fill: var(--ink-muted); }
+  .lbl { font-size: 14px; fill: var(--ink); text-anchor: end; }
+  .val { font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .tn { font-size: 13.5px; fill: var(--ink); }
+  .rng { font-size: 12.5px; fill: var(--ink-muted); text-anchor: end; }
+</style>
+<rect x="0" y="0" width="700" height="312" rx="10" fill="var(--bg)"/>
+<text class="cap" x="24" y="30">2026 年 10 月这一期的五张表：条数与序号区间</text>
+<text class="cap" x="510" y="58" text-anchor="end" font-size="11.5">条数</text>
+<text class="cap" x="676" y="58" text-anchor="end" font-size="11.5">序号区间</text>
+<line x1="24" y1="66" x2="676" y2="66" stroke="var(--line)" stroke-width="1"/>
+<text class="tn" x="24" y="92">生成式人工智能服务已备案信息</text>
+<rect x="300" y="81" width="86" height="14" rx="3" fill="var(--primary)"/>
+<text class="val" x="510" y="92" text-anchor="end" style="fill:var(--primary)">129</text>
+<text class="rng" x="676" y="92">1106–1234</text>
+<line x1="24" y1="108" x2="676" y2="108" stroke="var(--line)" stroke-width="1" opacity=".55"/>
+<text class="tn" x="24" y="134">生成式人工智能服务已登记信息</text>
+<rect x="300" y="123" width="150" height="14" rx="3" fill="var(--primary)"/>
+<text class="val" x="510" y="134" text-anchor="end" style="fill:var(--primary)">224</text>
+<text class="rng" x="676" y="134">732–955</text>
+<line x1="24" y1="150" x2="676" y2="150" stroke="var(--line)" stroke-width="1" opacity=".55"/>
+<text class="tn" x="24" y="176">手机端侧生成式人工智能服务已备案</text>
+<rect x="300" y="165" width="3" height="14" rx="3" fill="var(--neutral)"/>
+<text class="val" x="510" y="176" text-anchor="end">3</text>
+<text class="rng" x="676" y="176">8–10</text>
+<line x1="24" y1="192" x2="676" y2="192" stroke="var(--line)" stroke-width="1" opacity=".55"/>
+<text class="tn" x="24" y="218">拟人化互动服务场景已备案</text>
+<rect x="300" y="207" width="3" height="14" rx="3" fill="var(--neutral)"/>
+<text class="val" x="510" y="218" text-anchor="end">1</text>
+<text class="rng" x="676" y="218">1</text>
+<line x1="24" y1="234" x2="676" y2="234" stroke="var(--line)" stroke-width="1" opacity=".55"/>
+<text class="tn" x="24" y="260">已备案变更信息</text>
+<rect x="300" y="249" width="3" height="14" rx="3" fill="var(--neutral)"/>
+<text class="val" x="510" y="260" text-anchor="end">1</text>
+<text class="rng" x="676" y="260">—</text>
+<text class="cap" x="24" y="294" font-size="11.5">条数合计 357（不含「已备案变更」1 条）；「备案」编号全国连续，已排到 1234 号</text>
+</svg>

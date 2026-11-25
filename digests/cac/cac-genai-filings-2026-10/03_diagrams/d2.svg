@@ -1,0 +1,50 @@
+<svg viewBox="0 0 700 428" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif">
+<style>
+  svg {
+    --bg: #F4F7FB; --ink: #1F2933; --ink-muted: #6B7A8C;
+    --primary: #3B6FB6; --neutral: #B4C2D2;
+    --warn: #C0563E; --pos: #3F8F7B; --line: #D3DEEA;
+  }
+  @media (prefers-color-scheme: dark) {
+    svg {
+      --bg: #161B22; --ink: #E4EAF2; --ink-muted: #8494A6;
+      --primary: #6BA3E8; --neutral: #3E4C5C;
+      --warn: #E0785C; --pos: #5FB9A2; --line: #2A333F;
+    }
+  }
+  .cap { font-size: 13px; fill: var(--ink-muted); }
+  .lbl { font-size: 14px; fill: var(--ink); text-anchor: end; }
+  .val { font-size: 14px; font-weight: 600; fill: var(--ink); }
+</style>
+<rect x="0" y="0" width="700" height="428" rx="10" fill="var(--bg)"/>
+<text class="cap" x="24" y="30">357 条按属地分布（条）</text>
+<line x1="190" y1="48" x2="190" y2="380" stroke="var(--line)" stroke-width="1"/>
+<text class="lbl" x="176" y="74" style="fill:var(--primary);font-weight:600">北京市</text>
+<rect x="190" y="59" width="440" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="639" y="74" style="fill:var(--primary)">80</text>
+<text class="lbl" x="176" y="110" style="fill:var(--primary);font-weight:600">江苏省</text>
+<rect x="190" y="95" width="358" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="557" y="110" style="fill:var(--primary)">65</text>
+<text class="lbl" x="176" y="146" style="fill:var(--primary);font-weight:600">广东省</text>
+<rect x="190" y="131" width="346" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="545" y="146" style="fill:var(--primary)">63</text>
+<text class="lbl" x="176" y="182" style="fill:var(--primary);font-weight:600">上海市</text>
+<rect x="190" y="167" width="297" height="18" rx="3" fill="var(--primary)"/>
+<text class="val" x="496" y="182" style="fill:var(--primary)">54</text>
+<text class="lbl" x="176" y="218">浙江省</text>
+<rect x="190" y="203" width="148" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="347" y="218">27</text>
+<text class="lbl" x="176" y="254">福建省</text>
+<rect x="190" y="239" width="77" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="276" y="254">14</text>
+<text class="lbl" x="176" y="290">河北省</text>
+<rect x="190" y="275" width="61" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="260" y="290">11</text>
+<text class="lbl" x="176" y="326">山东省</text>
+<rect x="190" y="311" width="55" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="254" y="326">10</text>
+<text class="lbl" x="176" y="362">其余 12 个省级行政区</text>
+<rect x="190" y="347" width="182" height="18" rx="3" fill="var(--neutral)"/>
+<text class="val" x="381" y="362">33</text>
+<text class="cap" x="24" y="414" font-size="11.5">前四名合计 262 条，占 73.4%；共覆盖 20 个省级行政区</text>
+</svg>

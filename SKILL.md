@@ -6,7 +6,7 @@ description: >
   带编号的 digest 供用户挑选。当用户说"抓今天的新闻""今日科技热点""跑一下新闻摘要"
   等类似请求时使用本 skill。另含网信办生成式 AI 备案名单的监控与解读(Step 0.5,
   最高优先级,独立于新闻流程)。
-version: 2.2.0
+version: 2.3.0
 ---
 
 # Daily Tech News Skill
@@ -69,26 +69,60 @@ cd /home/bitnami/daily-tech-news
 
 #### 文章要求（agent 写，不走摘要子流程）
 
-正文写成 Markdown 存到 `/tmp/cac_article.md`，只讲一件事：**这批拿到备案的都是什么公司**。
+**落点是精选新闻网站（`curated-news-site`），不是 personal-site**（2026-11-25 改）。
+那边的文章不是 Markdown，是一份 `interpretation.json`：
+
+```
+title / hook / category / palette / read_minutes
+sections[]   每节 heading（小标题）+ conclusion（一句话结论）+ body（正文）+ diagram_id
+diagrams[]   图示规格；图本身是 03_diagrams/<id>.svg，要自己画
+judgment     source_nature / evidence_strength / open_questions
+closing / source
+```
+
+正文标记**只有五种**：`**强调**`、`[[术语]]`、段首 `>` 引语、段首 `1. 2. 3.` 编号列表、
+`[文字](https://…)` 外链。**没有表格** —— 统计表写成 Markdown 会原样显示成一串竖线，
+要画成 SVG 图示。导出脚本会挡下带表格的正文。
+
+内容要求：只讲一件事 —— **这批拿到备案的都是什么公司**。
 
 1. **全量统计**（覆盖全部单位，不抽样）：按赛道归类（如金融、医疗、工业、政务、教育、
    内容创作、客服、法律…）给出分布；按属地给出分布；备案与登记分开统计，不要混成一个数。
-   统计口径用 `stats` 里的数字，不要自己数。
+   统计口径用 `stats` 里的数字，不要自己数。这几张分布表就是图示的内容。
 2. **重点详介 30–50 家**：每家一小段话 —— 这家公司是做什么的、这次备案的模型/服务用在哪，
-   并留**官网 URL**。挑选标准：知名公司 + 每个赛道的典型代表 + 有辨识度的新面孔。
+   并留**官网 URL**（写成 `[域名](https://…)`）。挑选标准：知名公司 + 每个赛道的典型代表 +
+   有辨识度的新面孔。按赛道分节，一个赛道一节。
 3. 官网查不到就写「未找到公开官网」，**不要编 URL**。单位名带「（个体工商户）」「工作室」
    这类的通常没有官网，跳过即可。
 4. 不要逐条复述表格；表格本身在 PDF 里，文章的价值是分类和解读。
+5. `judgment.evidence_strength` 要说清哪些是程序解析出来的数字、哪些是人工归类的判断 ——
+   赛道怎么分是人定的，别把它写得像测量结果。
+
+图示画成 700 宽的 SVG，配色用 `var(--bg) / --ink / --ink-muted / --primary / --neutral /
+--warn / --pos / --line`（站点按 palette 注入，og 图按同一套换成具体色）。
+参考 `curated-news-site/src/data/diagrams/` 下任意一篇的 d1.svg。
 
 ```bash
-/opt/bitnami/python/bin/python3 scripts/export_cac_article.py --batch /tmp/cac_new.json --body /tmp/cac_article.md
+/opt/bitnami/python/bin/python3 scripts/export_cac_article.py \
+    --batch /tmp/cac_new.json --article /tmp/cac_interp.json --diagrams /tmp/cac_diagrams
 ```
 
-该脚本拼好 frontmatter（personal-site 的 `writing` 集合 schema）写进
-`~/personal-site/src/content/writing/cac-genai-filings-YYYY-MM.md` 并 git push，
-同时在本仓库 `digests/cac/` 留一份副本。统计数字由脚本从 extract 产物里取，不用手敲。
+脚本做三件事：核对条数/单位数跟 extract 产物对得上（对不上直接退出）、把 run 目录落进
+`digests/cac/<slug>/`、提交推送。
 
-确认发布成功后，记下这一期已处理，下次不再重复触发：
+> **服务器上没有 curated-news-site，也没有 news-website 那套发布脚本。**
+> 所以日报机器上这一步只到「交稿到 git」为止，脚本会把下一步命令打出来。
+> 到 Mac 上接着跑，两条命令：
+>
+> ```bash
+> cd ~/code/curated-news-site && node scripts/import-run.mjs ~/code/daily-tech-news/digests/cac <slug>
+> cd ~/code/news-website && python3 approve.py --free <slug> --push
+> ```
+>
+> 导入默认落 `pending`（不进生产产物），**上线必须定价**，这是网站那边的规矩，不要绕开。
+> Mac 上直接跑导出脚本时，第一条会自动做掉，定价发布仍然留给人。
+
+确认交稿成功后，记下这一期已处理，下次不再重复触发：
 
 ```bash
 /opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py mark-seen --from /tmp/cac_new.json
@@ -98,7 +132,9 @@ cd /home/bitnami/daily-tech-news
 
 `digest_final.md` **最前面**单独成节（在所有新闻条目之前），`digest_final.json` 加顶层字段
 `cac_filing`（`{period, counts, article_url, article_path}`）。这一节只放三行：
-这期是哪个月、各表多少条多少家单位、文章链接。**正文不塞进 digest**，文章体量太大。
+这期是哪个月、各表多少条多少家单位、文章链接
+（`https://news.jcy374.org/article/cac-genai-filings-YYYY-MM/`，定价发布之后才可访问）。
+**正文不塞进 digest**，文章体量太大。
 
 Step 7 汇报时在状态行后面补一句：`📋 CAC 备案名单更新（YYYY年M月，N 家单位），已发解读。`
 
@@ -322,5 +358,5 @@ cd /home/bitnami/daily-tech-news
 6. **Step 1-3（含 Step 2b）的命令在主 session shell 执行**,不用 delegate_task 子 agent 跑。
 7. **摘要子 agent 只有 1 个任务，不并行分批**——所有条目打包成单个 task，一次性完成总结归类。
 8. **Step 0.5 的 CAC 名单不进新闻流水线**——它不入 dedup_store、不派摘要子 agent、
-   不占 digest 条目编号。它产出的是一篇独立文章,digest 里只留三行摘要 + 链接。
+   不占 digest 条目编号。它产出的是精选新闻网站上的一篇独立文章,digest 里只留三行摘要 + 链接。
    名单没更新的日子(绝大多数)这一步就是一个 HTTP 请求,一行带过。
