@@ -272,7 +272,12 @@ def _row_fields(no, blob):
                 start = i + 1
                 break
     end = filing_m.start() if filing_m else (date_m.start() if date_m else len(text))
-    tokens = [t for t in text[start:end].split(" ") if t]
+    middle = text[start:end]
+    # 备案编号的前缀(Beijing-SongYanDongLi 这截)经常被折行切下来,不同 pypdf 版本
+    # 对它和单位名之间的空格处理还不一样 —— 7.x 会粘成一个词。备案单位是中文法人名,
+    # 不可能以 ASCII 结尾,所以把尾巴上的 ASCII 串削掉,结果就与 pypdf 版本无关了。
+    middle = re.sub(r"[A-Za-z0-9\-·\s]+$", "", middle)
+    tokens = [t for t in middle.split(" ") if t]
 
     unit, model, parsed = None, None, False
     for take in range(1, len(tokens) + 1):
