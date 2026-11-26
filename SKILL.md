@@ -41,12 +41,12 @@ echo $([ -n "$TWITTERAPI_KEY" ] && echo "TWITTERAPI_KEY=SET" || echo "X fetch=SK
 是一份名单，产出的是独立文章，不是 digest 条目。
 
 > 为什么是一个固定 URL:网信办不每期发新网页,而是在同一个公告页上**不断追加附件**
-> (附件1 = 2024年4月,至今 14 期,约每 2 个月一期)。所以判新 = 比对附件列表。
+> (附件1 = 2024年4月,至今 14 期,约每 2 个月一期)。所以判新 = **看附件号有没有超过水位线**
+> (状态里只存处理过的最大附件号)。状态文件丢了不用管:`check` 会自动把水位线建在
+> 当前最新一期上并报 0 新增 —— 不需要人工 seed,也不会去补发两年前的历史名单。
 
 ```bash
 cd /home/bitnami/daily-tech-news
-# 首次在一台新机器上跑,先把现有附件标成已见,否则 14 期历史会被全当成新的:
-#   /opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py seed
 /opt/bitnami/python/bin/python3 scripts/fetch_cac_filings.py check --out /tmp/cac_check.json
 ```
 

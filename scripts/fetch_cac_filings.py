@@ -2,8 +2,15 @@
 fetch_cac_filings.py — 监控网信办「生成式人工智能服务已备案信息」公告,解析新一期名单。
 
 为什么是单个 URL:网信办不是每期发一个新网页,而是**在同一个公告页上不断追加附件**
-(附件1 = 2024年4月,一直到现在,约每 2 个月一期)。所以判新 = 比对附件列表,
-而不是比对文章列表。附件被悄悄替换也要能发现,所以状态里存 PDF 的 sha256。
+(附件1 = 2024年4月,一直到现在,约每 2 个月一期)。所以判新 = 看附件号,
+而不是比对文章列表。
+
+判新用**水位线**,不是「这个附件见过没」:状态里只存处理过的最大附件号。
+新一期 = 附件号比水位线更大。差别在状态丢了的时候 —— 按「见过没」判,空状态
+会把 14 期历史全算成新的、挨个下 PDF;按水位线判,没有水位线就说明没有历史要补,
+check 自动把水位线建在当前最新一期上,报 0 新增。所以不需要人工 seed。
+另外只盯最新一期的标题有没有被换(网信办偶尔把刚发的附件换成修订版),
+旧附件被改不再报 —— 发现了也不会去重发两年前那期。
 
 本脚本只做确定性的事:抓页面、比对、下载、把 PDF 解析成结构化表格。
 「这批公司都是做什么的」那种判断交给上层 agent,脚本里不碰 LLM。
@@ -11,7 +18,7 @@ fetch_cac_filings.py — 监控网信办「生成式人工智能服务已备案�
 子命令:
   check    抓公告页 → 解析附件列表 → 与状态文件比对。日报每天跑这个,成本 1 个请求。
   extract  下载新附件(或 --attachment N 指定一期)的 PDF 并解析成结构化 JSON。
-  mark-seen 把本次处理过的附件写进状态文件,下次不再重复触发。
+  mark-seen 把水位线推到本次处理过的最大附件号,下次不再重复触发。
 
 用法:
   python3 scripts/fetch_cac_filings.py check --out /tmp/cac_check.json
@@ -110,7 +117,7 @@ def parse_attachments(page_html):
 
 def load_state(path):
     if not os.path.isfile(path):
-        return {"seen": {}}
+        return {}
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -121,17 +128,27 @@ def save_state(path, state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
+def _set_watermark(path, att):
+    """状态文件的全部内容就是这三个字段。标题留着是为了认出「刚发的附件被换了」。"""
+    save_state(path, {"last_no": att["no"],
+                      "last_title": att.get("title"),
+                      "last_period": att.get("period")})
+
+
 def diff_attachments(attachments, state):
-    """返回 (新增的, 内容被换过的)。key 用附件号,值记标题和 sha256。"""
-    seen = state.get("seen", {})
-    added, changed = [], []
-    for a in attachments:
-        key = str(a["no"])
-        prev = seen.get(key)
-        if prev is None:
-            added.append(a)
-        elif prev.get("title") and prev["title"] != a["title"]:
-            changed.append({**a, "prev_title": prev["title"]})
+    """返回 (新增的, 最新一期被换过的)。判据是水位线 last_no,见模块文档。
+
+    没有水位线时返回空 —— 这不是「没有新的」,是「还不知道从哪算起」,
+    由 cmd_check 负责建基线。在这里顺手建会让纯比对函数带上写状态的副作用。
+    """
+    last_no = state.get("last_no")
+    if last_no is None:
+        return [], []
+    added = [a for a in attachments if (a["no"] or 0) > last_no]
+    changed = []
+    cur = next((a for a in attachments if a["no"] == last_no), None)
+    if cur and state.get("last_title") and cur["title"] != state["last_title"]:
+        changed = [{**cur, "prev_title": state["last_title"]}]
     return added, changed
 
 
@@ -336,7 +353,14 @@ def cmd_check(cfg, args):
     url = cfg["url"]
     page = fetch_announcement(url, cfg["timeout_seconds"])
     atts = parse_attachments(page)
-    state = load_state(resolve_path(cfg["state_path"]))
+    state_path = resolve_path(cfg["state_path"])
+    state = load_state(state_path)
+    if state.get("last_no") is None and atts:
+        # 状态丢了/第一次跑。历史名单不需要补发,所以把水位线建在当前最新一期上,
+        # 本次报 0 新增。少了这一步,要么挨个下 14 个 PDF,要么永远静默不触发。
+        _set_watermark(state_path, atts[-1])
+        print(f"没有水位线,已按当前最新({atts[-1]['title']})建基线,本次不触发")
+        state = load_state(state_path)
     added, changed = diff_attachments(atts, state)
     out = {
         "source_url": url,
@@ -405,30 +429,20 @@ def cmd_extract(cfg, args):
 
 def cmd_mark_seen(cfg, args):
     path = resolve_path(cfg["state_path"])
-    state = load_state(path)
     with open(args.from_file, "r", encoding="utf-8") as f:
         data = json.load(f)
     batches = data.get("batches") or data.get("new_attachments") or []
-    for b in batches:
-        state.setdefault("seen", {})[str(b["no"])] = {
-            "title": b.get("title"),
-            "period": b.get("period"),
-            "sha256": b.get("sha256"),
-        }
-    save_state(path, state)
-    print(f"已记录 {len(batches)} 个附件,状态文件:{path}")
-
-
-def cmd_seed(cfg, args):
-    """把当前所有附件一次性标成已见 —— 首次接入时用,避免把 14 期历史全当新的。"""
-    page = fetch_announcement(cfg["url"], cfg["timeout_seconds"])
-    atts = parse_attachments(page)
-    state = {"seen": {str(a["no"]): {"title": a["title"], "period": a["period"],
-                                     "sha256": None} for a in atts}}
-    path = resolve_path(cfg["state_path"])
-    save_state(path, state)
-    print(f"已把现有 {len(atts)} 个附件标为已见(最新:{atts[-1]['title'] if atts else '-'})")
-    print(f"状态文件:{path}")
+    if not batches:
+        print("输入里没有 batches,水位线不动")
+        return
+    # 只往前推,不回退 —— 重跑一期旧附件(extract --attachment N)不该把水位线拉回去
+    top = max(batches, key=lambda b: b.get("no") or 0)
+    state = load_state(path)
+    if (top.get("no") or 0) <= (state.get("last_no") or 0):
+        print(f"水位线已在附件{state['last_no']},不回退")
+        return
+    _set_watermark(path, top)
+    print(f"水位线推到附件{top['no']}({top.get('title')}),状态文件:{path}")
 
 
 def _emit(obj, out_path):
@@ -457,7 +471,6 @@ def main():
     p.add_argument("--from", dest="from_file", required=True,
                    help="check 或 extract 的输出 JSON")
 
-    sub.add_parser("seed", help="首次接入:把现有附件全标成已见")
 
     args = ap.parse_args()
     cfg = (load_config(args.config) or {}).get("cac_filings") or {}
@@ -468,7 +481,7 @@ def main():
     cfg.setdefault("pdf_dir", "./data/cac_pdf")
 
     {"check": cmd_check, "extract": cmd_extract,
-     "mark-seen": cmd_mark_seen, "seed": cmd_seed}[args.cmd](cfg, args)
+     "mark-seen": cmd_mark_seen}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
